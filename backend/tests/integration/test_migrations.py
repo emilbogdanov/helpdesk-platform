@@ -47,6 +47,7 @@ def test_downgrade_removes_everything_and_upgrade_restores_it(
     command.upgrade(alembic_config, "head")
     assert asyncio.run(_tables_in(database_url)) == {
         "alembic_version",
+        "users",
         "tickets",
         "comments",
         "audit_entries",

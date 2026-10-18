@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import (
 from testcontainers.community.postgres import PostgresContainer
 
 from helpdesk.infrastructure.db.unit_of_work import SqlUnitOfWork
+from tests.unit.domain.users.builders import everyone
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 POSTGRES_IMAGE = "postgres:17-alpine"
@@ -52,7 +53,7 @@ async def engine(database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(database_url)
     yield engine
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE tickets, comments, audit_entries"))
+        await connection.execute(text("TRUNCATE users, tickets, comments, audit_entries"))
     await engine.dispose()
 
 
@@ -62,5 +63,15 @@ def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 
 
 @pytest.fixture
-def uow(session_factory: async_sessionmaker[AsyncSession]) -> SqlUnitOfWork:
+async def people(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    # Tickets reference real accounts, so the people the builders name must exist first.
+    uow = SqlUnitOfWork(session_factory)
+    async with uow:
+        for user in everyone():
+            await uow.users.add(user)
+        await uow.commit()
+
+
+@pytest.fixture
+def uow(session_factory: async_sessionmaker[AsyncSession], people: None) -> SqlUnitOfWork:
     return SqlUnitOfWork(session_factory)

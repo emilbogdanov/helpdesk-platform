@@ -1,14 +1,23 @@
+from uuid import UUID
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from helpdesk.application.errors import ConcurrentUpdateError, IdempotencyKeyConflictError
-from helpdesk.domain.ids import TicketId
+from helpdesk.application.errors import (
+    ConcurrentUpdateError,
+    EmailTakenError,
+    IdempotencyKeyConflictError,
+)
+from helpdesk.domain.ids import TicketId, UserId
+from helpdesk.domain.roles import Role
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.ticket import Ticket
 from helpdesk.domain.tickets.values import Priority
+from helpdesk.domain.users.values import EmailAddress
 from helpdesk.infrastructure.db.unit_of_work import SqlUnitOfWork
 from tests.unit.domain.tickets.builders import (
     LATER,
+    MILA,
     OTHER_CUSTOMER,
     REQUESTER,
     STEFAN,
@@ -16,6 +25,7 @@ from tests.unit.domain.tickets.builders import (
     open_ticket,
     ticket_in,
 )
+from tests.unit.domain.users.builders import user
 
 pytestmark = pytest.mark.integration
 
@@ -163,3 +173,72 @@ class TestUnitOfWorkMisuse:
         async with uow:
             with pytest.raises(RuntimeError, match="already in use"):
                 await uow.__aenter__()
+
+
+class TestUsers:
+    async def test_round_trip_and_lookup_by_email(self, uow: SqlUnitOfWork) -> None:
+        async with uow:
+            by_id = await uow.users.get(MILA)
+            by_email = await uow.users.get_by_email(EmailAddress("MILA@helpdesk.test"))
+
+        assert by_id is not None
+        assert by_email is not None
+        assert by_email.id == by_id.id == MILA
+        assert str(by_id.display_name) == "Mila Georgieva"
+        assert by_id.role is Role.AGENT
+        assert by_id.is_active
+
+    async def test_unknown_user_is_none(self, uow: SqlUnitOfWork) -> None:
+        async with uow:
+            assert await uow.users.get(UserId(UUID(int=99))) is None
+            assert await uow.users.get_by_email(EmailAddress("nobody@helpdesk.test")) is None
+
+    async def test_email_must_be_unique(self, uow: SqlUnitOfWork) -> None:
+        duplicate = user(
+            UserId(UUID(int=99)), email="mila@helpdesk.test", name="Mila Again", role=Role.AGENT
+        )
+
+        async with uow:
+            with pytest.raises(EmailTakenError):
+                await uow.users.add(duplicate)
+
+    async def test_update_persists_role_and_status(self, uow: SqlUnitOfWork) -> None:
+        async with uow:
+            mila = await uow.users.get(MILA)
+            assert mila is not None
+            mila.change_role(Role.ADMIN)
+            mila.deactivate()
+            await uow.users.update(mila)
+            await uow.commit()
+
+        async with uow:
+            stored = await uow.users.get(MILA)
+        assert stored is not None
+        assert stored.role is Role.ADMIN
+        assert not stored.is_active
+
+    async def test_updating_a_user_that_was_not_loaded_fails(self, uow: SqlUnitOfWork) -> None:
+        async with uow:
+            with pytest.raises(LookupError):
+                await uow.users.update(
+                    user(MILA, email="mila@helpdesk.test", name="Mila", role=Role.AGENT)
+                )
+
+    async def test_concurrent_user_changes_are_detected(
+        self, uow: SqlUnitOfWork, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        other_admin = SqlUnitOfWork(session_factory)
+
+        async with uow, other_admin:
+            mine = await uow.users.get(MILA)
+            theirs = await other_admin.users.get(MILA)
+            assert mine is not None
+            assert theirs is not None
+            theirs.deactivate()
+            await other_admin.users.update(theirs)
+            await other_admin.commit()
+
+            mine.change_role(Role.ADMIN)
+            await uow.users.update(mine)
+            with pytest.raises(ConcurrentUpdateError):
+                await uow.commit()

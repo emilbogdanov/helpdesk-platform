@@ -7,7 +7,11 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from helpdesk.application.errors import ConcurrentUpdateError
 from helpdesk.infrastructure.db.audit_log import SqlAuditLog
-from helpdesk.infrastructure.db.repositories import SqlCommentRepository, SqlTicketRepository
+from helpdesk.infrastructure.db.repositories import (
+    SqlCommentRepository,
+    SqlTicketRepository,
+    SqlUserRepository,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +20,7 @@ class _Transaction:
     tickets: SqlTicketRepository
     comments: SqlCommentRepository
     audit: SqlAuditLog
+    users: SqlUserRepository
 
 
 class SqlUnitOfWork:
@@ -35,6 +40,10 @@ class SqlUnitOfWork:
     def audit(self) -> SqlAuditLog:
         return self._active().audit
 
+    @property
+    def users(self) -> SqlUserRepository:
+        return self._active().users
+
     async def __aenter__(self) -> Self:
         if self._transaction is not None:
             raise RuntimeError("unit of work is already in use; blocks can't be nested")
@@ -44,6 +53,7 @@ class SqlUnitOfWork:
             tickets=SqlTicketRepository(session),
             comments=SqlCommentRepository(session),
             audit=SqlAuditLog(session),
+            users=SqlUserRepository(session),
         )
         return self
 

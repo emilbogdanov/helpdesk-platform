@@ -4,12 +4,14 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.application.errors import IdempotencyKeyConflictError
+from helpdesk.application.errors import EmailTakenError, IdempotencyKeyConflictError
 from helpdesk.domain.ids import CommentId, TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment, CommentBody, Visibility
 from helpdesk.domain.tickets.ticket import Ticket
 from helpdesk.domain.tickets.values import Description, Subject
-from helpdesk.infrastructure.db.tables import CommentRow, TicketRow
+from helpdesk.domain.users.user import User
+from helpdesk.domain.users.values import DisplayName, EmailAddress
+from helpdesk.infrastructure.db.tables import CommentRow, TicketRow, UserRow
 
 
 class SqlTicketRepository:
@@ -94,6 +96,44 @@ class SqlCommentRepository:
         return [_comment_from_row(row) for row in rows]
 
 
+class SqlUserRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+        # Same reason as SqlTicketRepository: update() must write the version that was read.
+        self._loaded: dict[UserId, UserRow] = {}
+
+    async def get(self, user_id: UserId) -> User | None:
+        return self._track(await self._session.get(UserRow, user_id))
+
+    async def get_by_email(self, email: EmailAddress) -> User | None:
+        return self._track(
+            await self._session.scalar(select(UserRow).where(UserRow.email == str(email)))
+        )
+
+    async def add(self, user: User) -> None:
+        inserted = await self._session.scalar(
+            insert(UserRow)
+            .values(**_user_columns(user), version=1)
+            .on_conflict_do_nothing(constraint="uq_users_email")
+            .returning(UserRow.id)
+        )
+        if inserted is None:
+            raise EmailTakenError(user.email)
+
+    async def update(self, user: User) -> None:
+        row = self._loaded.get(user.id)
+        if row is None:
+            raise LookupError(f"user {user.id} must be loaded in this unit of work to update")
+        for column, value in _user_columns(user).items():
+            setattr(row, column, value)
+
+    def _track(self, row: UserRow | None) -> User | None:
+        if row is None:
+            return None
+        self._loaded[UserId(row.id)] = row
+        return _user_from_row(row)
+
+
 def _ticket_columns(ticket: Ticket) -> dict[str, Any]:
     return {
         "id": ticket.id,
@@ -133,5 +173,29 @@ def _comment_from_row(row: CommentRow) -> Comment:
         author_id=UserId(row.author_id),
         body=CommentBody(row.body),
         visibility=row.visibility,
+        created_at=row.created_at,
+    )
+
+
+def _user_columns(user: User) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "email": str(user.email),
+        "display_name": str(user.display_name),
+        "role": user.role,
+        "password_hash": user.password_hash,
+        "is_active": user.is_active,
+        "created_at": user.created_at,
+    }
+
+
+def _user_from_row(row: UserRow) -> User:
+    return User(
+        user_id=UserId(row.id),
+        email=EmailAddress(row.email),
+        display_name=DisplayName(row.display_name),
+        role=row.role,
+        password_hash=row.password_hash,
+        is_active=row.is_active,
         created_at=row.created_at,
     )

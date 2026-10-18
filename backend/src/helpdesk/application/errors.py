@@ -1,4 +1,5 @@
 from helpdesk.domain.ids import TicketId
+from helpdesk.domain.users.values import EmailAddress
 
 
 class ApplicationError(Exception):
@@ -34,3 +35,9 @@ class IdempotencyKeyConflictError(ApplicationError):
 class ConcurrentUpdateError(ApplicationError):
     def __init__(self) -> None:
         super().__init__("the ticket was changed by someone else; reload it and try again")
+
+
+class EmailTakenError(ApplicationError):
+    def __init__(self, email: EmailAddress) -> None:
+        super().__init__(f"an account with {email} already exists")
+        self.email = email

@@ -19,9 +19,11 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from helpdesk.domain.roles import Role
 from helpdesk.domain.tickets.comment import Visibility
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.values import SUBJECT_MAX_LENGTH, Priority
+from helpdesk.domain.users.values import DISPLAY_NAME_MAX_LENGTH, EMAIL_MAX_LENGTH
 
 # Deterministic constraint names, so migrations can refer to them and
 # autogenerate never sees a renamed constraint as a new one.
@@ -52,16 +54,31 @@ def _enum_column(enum: type[StrEnum], name: str) -> Enum:
     )
 
 
+class UserRow(Base):
+    __tablename__ = "users"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(EMAIL_MAX_LENGTH), unique=True)
+    display_name: Mapped[str] = mapped_column(String(DISPLAY_NAME_MAX_LENGTH))
+    role: Mapped[Role] = mapped_column(_enum_column(Role, "role"))
+    password_hash: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool]
+    created_at: Mapped[datetime]
+    version: Mapped[int] = mapped_column()
+
+    __mapper_args__ = {"version_id_col": version}  # noqa: RUF012
+
+
 class TicketRow(Base):
     __tablename__ = "tickets"
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
-    requester_id: Mapped[UUID]
+    requester_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
     subject: Mapped[str] = mapped_column(String(SUBJECT_MAX_LENGTH))
     description: Mapped[str] = mapped_column(Text)
     priority: Mapped[Priority] = mapped_column(_enum_column(Priority, "priority"))
     status: Mapped[TicketStatus] = mapped_column(_enum_column(TicketStatus, "status"))
-    assignee_id: Mapped[UUID | None]
+    assignee_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
     resolved_at: Mapped[datetime | None]
@@ -86,7 +103,7 @@ class CommentRow(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     ticket_id: Mapped[UUID] = mapped_column(ForeignKey("tickets.id"))
-    author_id: Mapped[UUID]
+    author_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
     body: Mapped[str] = mapped_column(Text)
     visibility: Mapped[Visibility] = mapped_column(_enum_column(Visibility, "visibility"))
     created_at: Mapped[datetime]
@@ -99,7 +116,7 @@ class AuditEntryRow(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     ticket_id: Mapped[UUID] = mapped_column(ForeignKey("tickets.id"))
-    actor_id: Mapped[UUID]
+    actor_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
     event_type: Mapped[str] = mapped_column(String(64))
     occurred_at: Mapped[datetime]
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)

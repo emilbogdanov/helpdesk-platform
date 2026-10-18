@@ -18,7 +18,7 @@ from helpdesk.infrastructure.db.unit_of_work import SqlUnitOfWork
 from tests.unit.application.fakes import FixedClock
 from tests.unit.domain.tickets.builders import MILA, OPENED_AT, REQUESTER
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("people")]
 
 CUSTOMER = Actor(REQUESTER, Role.CUSTOMER)
 AGENT = Actor(MILA, Role.AGENT)
