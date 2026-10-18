@@ -13,6 +13,7 @@ from helpdesk.application.errors import (
 )
 from helpdesk.application.ports import TokenClaims
 from helpdesk.application.tickets.queries import UNASSIGNED, TicketQuery
+from helpdesk.application.users.queries import UserQuery
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment, Visibility
 from helpdesk.domain.tickets.events import TicketEvent
@@ -142,6 +143,24 @@ class InMemoryUserRepository:
     async def find_staff(self) -> list[User]:
         staff = [user for user in self.rows.values() if user.can_work_tickets]
         return [deepcopy(user) for user in sorted(staff, key=lambda user: str(user.display_name))]
+
+    async def find(self, query: UserQuery) -> list[User]:
+        def matches(user: User) -> bool:
+            needle = (query.search or "").strip().lower()
+            return (
+                (query.role is None or user.role is query.role)
+                and (query.active is None or user.is_active is query.active)
+                and (needle in str(user.display_name).lower() or needle in str(user.email))
+            )
+
+        def key(user: User) -> tuple[str, str]:
+            return (str(user.display_name), str(user.id))
+
+        found = sorted(filter(matches, self.rows.values()), key=key)
+        if query.after is not None:
+            start = (query.after.display_name, str(query.after.user_id))
+            found = [user for user in found if key(user) > start]
+        return [deepcopy(user) for user in found[: query.limit]]
 
     async def add(self, user: User) -> None:
         assert user.id not in self.rows, f"user {user.id} added twice"

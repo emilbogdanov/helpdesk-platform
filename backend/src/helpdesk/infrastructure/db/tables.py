@@ -74,6 +74,7 @@ class UserRow(Base):
     created_at: Mapped[datetime]
     version: Mapped[int] = mapped_column()
 
+    __table_args__ = (Index("ix_users_display_name_id", "display_name", "id"),)
     __mapper_args__ = {"version_id_col": version}  # noqa: RUF012
 
 

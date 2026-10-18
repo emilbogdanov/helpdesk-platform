@@ -1,9 +1,12 @@
 from collections.abc import Callable
+from dataclasses import replace
 from uuid import uuid4
 
 from helpdesk.application.actor import Actor
 from helpdesk.application.errors import AdminOnlyError, OwnAccountError, UserNotFoundError
 from helpdesk.application.ports import Clock, PasswordHasher, UnitOfWork
+from helpdesk.application.users.queries import MAX_PAGE_SIZE, UserCursor, UserPage, UserQuery
+from helpdesk.domain.errors import InvalidValueError
 from helpdesk.domain.ids import UserId
 from helpdesk.domain.roles import Role
 from helpdesk.domain.users.user import User
@@ -39,6 +42,19 @@ class UserService:
             await uow.users.add(user)
             await uow.commit()
         return user
+
+    async def list_users(self, actor: Actor, query: UserQuery) -> UserPage:
+        _require_admin(actor, "list accounts")
+        if not 1 <= query.limit <= MAX_PAGE_SIZE:
+            raise InvalidValueError(f"page size must be 1 to {MAX_PAGE_SIZE}")
+        async with self._uow as uow:
+            found = await uow.users.find(replace(query, limit=query.limit + 1))
+        users, has_more = found[: query.limit], len(found) > query.limit
+        last = users[-1] if has_more else None
+        return UserPage(
+            users=users,
+            next_cursor=UserCursor(str(last.display_name), last.id) if last else None,
+        )
 
     async def get_profile(self, actor: Actor) -> User:
         async with self._uow as uow:

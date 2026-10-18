@@ -3,12 +3,13 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, and_, literal, or_, select, text, tuple_
+from sqlalchemy import Select, and_, func, literal, or_, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.application.errors import EmailTakenError, IdempotencyKeyConflictError
 from helpdesk.application.tickets.queries import UNASSIGNED, TicketQuery
+from helpdesk.application.users.queries import UserQuery
 from helpdesk.domain.ids import CommentId, TicketId, UserId
 from helpdesk.domain.roles import Role
 from helpdesk.domain.tickets.comment import Comment, CommentBody, Visibility
@@ -149,6 +150,10 @@ class SqlUserRepository:
         )
         return [self._remember(row) for row in rows]
 
+    async def find(self, query: UserQuery) -> list[User]:
+        rows = await self._session.scalars(user_search(query))
+        return [_user_from_row(row) for row in rows]
+
     async def add(self, user: User) -> None:
         inserted = await self._session.scalar(
             insert(UserRow)
@@ -199,6 +204,29 @@ def ticket_search(query: TicketQuery) -> Select[TicketRow]:
     return statement.order_by(
         *(column.desc() if query.sort.descending else column for column in order)
     ).limit(query.limit)
+
+
+def user_search(query: UserQuery) -> Select[UserRow]:
+    statement = select(UserRow)
+    if query.role is not None:
+        statement = statement.where(UserRow.role == query.role)
+    if query.active is not None:
+        statement = statement.where(UserRow.is_active.is_(query.active))
+    if query.search:
+        # A substring match can't use a b-tree index; fine for the accounts of one support
+        # desk. A trigram index is the upgrade if that ever reaches hundreds of thousands.
+        needle = query.search.strip().lower()
+        statement = statement.where(
+            or_(
+                func.lower(UserRow.display_name).contains(needle, autoescape=True),
+                UserRow.email.contains(needle, autoescape=True),
+            )
+        )
+    if query.after is not None:
+        position = tuple_(UserRow.display_name, UserRow.id)
+        cursor = tuple_(literal(query.after.display_name), literal(query.after.user_id))
+        statement = statement.where(position > cursor)
+    return statement.order_by(UserRow.display_name, UserRow.id).limit(query.limit)
 
 
 def awaiting_first_response(

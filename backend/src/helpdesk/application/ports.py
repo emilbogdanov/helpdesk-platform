@@ -5,6 +5,7 @@ from types import TracebackType
 from typing import Protocol, Self
 
 from helpdesk.application.tickets.queries import TicketQuery
+from helpdesk.application.users.queries import UserQuery
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment
 from helpdesk.domain.tickets.events import TicketEvent
@@ -59,6 +60,9 @@ class UserRepository(Protocol):
 
     # Active agents and admins, by name. A support team is small enough to return whole.
     async def find_staff(self) -> list[User]: ...
+
+    # Ordered by display name, then id.
+    async def find(self, query: UserQuery) -> list[User]: ...
 
     # Raises EmailTakenError if another account already uses the address.
     async def add(self, user: User) -> None: ...

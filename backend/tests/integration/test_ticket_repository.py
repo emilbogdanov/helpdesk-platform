@@ -8,6 +8,7 @@ from helpdesk.application.errors import (
     EmailTakenError,
     IdempotencyKeyConflictError,
 )
+from helpdesk.application.users.queries import UserCursor, UserQuery
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.roles import Role
 from helpdesk.domain.tickets.status import TicketStatus
@@ -226,6 +227,35 @@ class TestUsers:
             staff = await uow.users.find_staff()
 
         assert [str(person.display_name) for person in staff] == ["Anna Vasileva", "Stefan Kolev"]
+
+    async def test_search_treats_wildcards_literally_and_pages_by_name(
+        self, uow: SqlUnitOfWork
+    ) -> None:
+        async with uow:
+            await uow.users.add(
+                user(
+                    UserId(UUID(int=8)),
+                    email="100%@acme.test",
+                    name="Ana Petrova",
+                    role=Role.CUSTOMER,
+                )
+            )
+            await uow.commit()
+
+        async with uow:
+            wildcard = await uow.users.find(UserQuery(search="%"))
+            first = await uow.users.find(UserQuery(limit=2))
+            after = UserCursor(str(first[-1].display_name), first[-1].id)
+            rest = await uow.users.find(UserQuery(after=after))
+
+        assert [str(person.email) for person in wildcard] == ["100%@acme.test"]
+        assert [str(person.display_name) for person in first + rest] == [
+            "Ana Petrova",
+            "Elena Dimova",
+            "Mila Georgieva",
+            "Petar Ivanov",
+            "Stefan Kolev",
+        ]
 
     async def test_email_must_be_unique(self, uow: SqlUnitOfWork) -> None:
         duplicate = user(

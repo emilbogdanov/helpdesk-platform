@@ -89,6 +89,7 @@ async def test_admins_cannot_lock_themselves_out(client: AsyncClient, as_admin: 
     ("method", "path", "body"),
     [
         ("POST", "/users", NEW_AGENT),
+        ("GET", "/users", None),
         ("GET", f"/users/{REQUESTER}", None),
         ("PUT", f"/users/{REQUESTER}/role", {"role": "admin"}),
         ("POST", f"/users/{REQUESTER}/deactivate", None),
@@ -138,3 +139,61 @@ async def test_customers_cannot_list_the_team(client: AsyncClient, as_customer: 
 
     assert response.status_code == 403
     assert response.json()["code"] == "staff_only"
+
+
+class TestAccountList:
+    async def test_lists_everyone_by_name(self, client: AsyncClient, as_admin: Headers) -> None:
+        response = await client.get("/users", headers=as_admin)
+
+        assert response.status_code == 200
+        assert [user["display_name"] for user in response.json()["items"]] == [
+            "Elena Dimova",
+            "Mila Georgieva",
+            "Petar Ivanov",
+            "Stefan Kolev",
+        ]
+        assert response.json()["next_cursor"] is None
+
+    async def test_filters_by_role_status_and_search(
+        self, client: AsyncClient, as_admin: Headers
+    ) -> None:
+        await client.post(f"/users/{MILA}/deactivate", headers=as_admin)
+
+        customers = await client.get("/users", params={"role": "customer"}, headers=as_admin)
+        deactivated = await client.get("/users", params={"status": "deactivated"}, headers=as_admin)
+        by_email = await client.get("/users", params={"q": "NORTHWIND"}, headers=as_admin)
+        by_name = await client.get("/users", params={"q": "kolev"}, headers=as_admin)
+
+        assert [u["display_name"] for u in customers.json()["items"]] == [
+            "Elena Dimova",
+            "Petar Ivanov",
+        ]
+        assert [u["display_name"] for u in deactivated.json()["items"]] == ["Mila Georgieva"]
+        assert [u["display_name"] for u in by_email.json()["items"]] == ["Petar Ivanov"]
+        assert [u["display_name"] for u in by_name.json()["items"]] == ["Stefan Kolev"]
+
+    async def test_pages_follow_on_without_gaps(
+        self, client: AsyncClient, as_admin: Headers
+    ) -> None:
+        first = (await client.get("/users", params={"limit": 3}, headers=as_admin)).json()
+        second = (
+            await client.get(
+                "/users", params={"limit": 3, "cursor": first["next_cursor"]}, headers=as_admin
+            )
+        ).json()
+
+        assert [u["display_name"] for u in first["items"]] == [
+            "Elena Dimova",
+            "Mila Georgieva",
+            "Petar Ivanov",
+        ]
+        assert [u["display_name"] for u in second["items"]] == ["Stefan Kolev"]
+        assert second["next_cursor"] is None
+
+    async def test_a_mangled_cursor_is_rejected(
+        self, client: AsyncClient, as_admin: Headers
+    ) -> None:
+        response = await client.get("/users", params={"cursor": "not-a-cursor"}, headers=as_admin)
+
+        assert response.status_code == 422
+        assert response.json()["code"] == "invalid_value"
