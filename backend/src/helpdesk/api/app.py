@@ -1,7 +1,9 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
+from starlette.types import Lifespan
 
 from helpdesk.api.container import Container
 from helpdesk.api.errors import register_error_handlers
@@ -14,8 +16,19 @@ def create_app(container: Container) -> FastAPI:
         yield
         await container.close()
 
-    app = FastAPI(title="Helpdesk", version="0.1.0", lifespan=lifespan)
+    app = _routed_app(lifespan)
     app.state.container = container
+    return app
+
+
+def openapi_schema() -> dict[str, Any]:
+    # Routes resolve the container per request, so the schema can be built without a
+    # database, a secret or any other setting.
+    return _routed_app().openapi()
+
+
+def _routed_app(lifespan: Lifespan[FastAPI] | None = None) -> FastAPI:
+    app = FastAPI(title="Helpdesk", version="0.1.0", lifespan=lifespan)
     register_error_handlers(app)
     for router in (auth.router, tickets.router, users.router):
         app.include_router(router)

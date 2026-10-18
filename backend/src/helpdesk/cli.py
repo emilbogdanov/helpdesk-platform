@@ -1,12 +1,14 @@
 import argparse
 import asyncio
 import getpass
+import json
 import os
 import signal
 import sys
 from collections.abc import Sequence
 from contextlib import suppress
 
+from helpdesk.api.app import openapi_schema
 from helpdesk.application.errors import EmailTakenError
 from helpdesk.application.users.admin_bootstrap import register_admin
 from helpdesk.application.users.password_reset import reset_password
@@ -40,6 +42,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands.add_parser(
         "worker", help="run the background jobs: overdue first responses and auto-close"
     )
+    commands.add_parser(
+        "openapi", help="print the API schema as JSON, e.g. to generate a typed client"
+    )
     args = parser.parse_args(argv)
 
     match args.command:
@@ -47,6 +52,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _create_admin(email=args.email, name=args.name)
         case "reset-password":
             return _reset_password(email=args.email)
+        case "openapi":
+            return _print_openapi()
         case _:
             return _worker()
 
@@ -75,6 +82,12 @@ def _reset_password(*, email: str) -> int:
     if user is None:
         return _fail(f"no account uses {address}")
     sys.stdout.write(f"new password set for {user.email}\n")
+    return 0
+
+
+def _print_openapi() -> int:
+    # ASCII-only output survives a shell redirect on any platform's console encoding.
+    sys.stdout.write(json.dumps(openapi_schema(), indent=2, ensure_ascii=True) + "\n")
     return 0
 
 
