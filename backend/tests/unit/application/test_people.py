@@ -1,9 +1,14 @@
 from uuid import UUID
 
+import pytest
+
+from helpdesk.application.actor import Actor
+from helpdesk.application.errors import StaffOnlyError
 from helpdesk.application.users.people import PeopleDirectory
 from helpdesk.domain.ids import UserId
+from helpdesk.domain.roles import Role
 from tests.unit.application.fakes import FakeUnitOfWork
-from tests.unit.domain.tickets.builders import MILA, REQUESTER
+from tests.unit.domain.tickets.builders import MILA, REQUESTER, STEFAN
 from tests.unit.domain.users.builders import everyone
 
 
@@ -31,3 +36,14 @@ async def test_unknown_ids_are_left_out() -> None:
     people = await (await directory()).find([UserId(UUID(int=404))])
 
     assert people == {}
+
+
+async def test_staff_list_the_team() -> None:
+    staff = await (await directory()).staff(Actor(MILA, Role.AGENT))
+
+    assert [person.id for person in staff] == [MILA, STEFAN]
+
+
+async def test_customers_cannot_list_the_team() -> None:
+    with pytest.raises(StaffOnlyError):
+        await (await directory()).staff(Actor(REQUESTER, Role.CUSTOMER))

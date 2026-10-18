@@ -206,6 +206,27 @@ class TestUsers:
             "Stefan Kolev",
         ]
 
+    async def test_staff_are_the_active_agents_and_admins_by_name(self, uow: SqlUnitOfWork) -> None:
+        async with uow:
+            mila = await uow.users.get(MILA)
+            assert mila is not None
+            mila.deactivate()
+            await uow.users.update(mila)
+            await uow.users.add(
+                user(
+                    UserId(UUID(int=7)),
+                    email="anna@helpdesk.test",
+                    name="Anna Vasileva",
+                    role=Role.AGENT,
+                )
+            )
+            await uow.commit()
+
+        async with uow:
+            staff = await uow.users.find_staff()
+
+        assert [str(person.display_name) for person in staff] == ["Anna Vasileva", "Stefan Kolev"]
+
     async def test_email_must_be_unique(self, uow: SqlUnitOfWork) -> None:
         duplicate = user(
             UserId(UUID(int=99)), email="mila@helpdesk.test", name="Mila Again", role=Role.AGENT

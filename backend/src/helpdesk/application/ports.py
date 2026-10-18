@@ -57,6 +57,9 @@ class UserRepository(Protocol):
 
     async def get_by_email(self, email: EmailAddress) -> User | None: ...
 
+    # Active agents and admins, by name. A support team is small enough to return whole.
+    async def find_staff(self) -> list[User]: ...
+
     # Raises EmailTakenError if another account already uses the address.
     async def add(self, user: User) -> None: ...
 

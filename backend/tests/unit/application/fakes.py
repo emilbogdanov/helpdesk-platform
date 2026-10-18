@@ -139,6 +139,10 @@ class InMemoryUserRepository:
                 return deepcopy(user)
         return None
 
+    async def find_staff(self) -> list[User]:
+        staff = [user for user in self.rows.values() if user.can_work_tickets]
+        return [deepcopy(user) for user in sorted(staff, key=lambda user: str(user.display_name))]
+
     async def add(self, user: User) -> None:
         assert user.id not in self.rows, f"user {user.id} added twice"
         if any(existing.email == user.email for existing in self.rows.values()):

@@ -109,3 +109,32 @@ async def test_account_management_is_admin_only(
 
     assert response.status_code == 403
     assert response.json()["code"] == "admin_only"
+
+
+async def test_staff_see_the_active_team_by_name(
+    client: AsyncClient, as_agent: Headers, as_admin: Headers
+) -> None:
+    await client.post("/users", json=NEW_AGENT, headers=as_admin)
+    created = await client.post(
+        "/users",
+        json={**NEW_AGENT, "email": "boris@helpdesk.test", "display_name": "Boris Atanasov"},
+        headers=as_admin,
+    )
+    await client.post(f"/users/{created.json()['id']}/deactivate", headers=as_admin)
+
+    response = await client.get("/users/staff", headers=as_agent)
+
+    assert response.status_code == 200
+    assert [(person["display_name"], person["role"]) for person in response.json()] == [
+        ("Mila Georgieva", "agent"),
+        ("Radoslav Petkov", "agent"),
+        ("Stefan Kolev", "admin"),
+    ]
+    assert set(response.json()[0]) == {"id", "display_name", "role"}
+
+
+async def test_customers_cannot_list_the_team(client: AsyncClient, as_customer: Headers) -> None:
+    response = await client.get("/users/staff", headers=as_customer)
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "staff_only"

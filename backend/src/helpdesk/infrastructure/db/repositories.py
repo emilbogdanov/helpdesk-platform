@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.application.errors import EmailTakenError, IdempotencyKeyConflictError
 from helpdesk.application.tickets.queries import UNASSIGNED, TicketQuery
 from helpdesk.domain.ids import CommentId, TicketId, UserId
+from helpdesk.domain.roles import Role
 from helpdesk.domain.tickets.comment import Comment, CommentBody, Visibility
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.ticket import Ticket
@@ -139,6 +140,14 @@ class SqlUserRepository:
         return self._track(
             await self._session.scalar(select(UserRow).where(UserRow.email == str(email)))
         )
+
+    async def find_staff(self) -> list[User]:
+        rows = await self._session.scalars(
+            select(UserRow)
+            .where(UserRow.role.in_([Role.AGENT, Role.ADMIN]), UserRow.is_active.is_(True))
+            .order_by(UserRow.display_name, UserRow.id)
+        )
+        return [self._remember(row) for row in rows]
 
     async def add(self, user: User) -> None:
         inserted = await self._session.scalar(

@@ -1,6 +1,8 @@
 from collections.abc import Iterable
 
+from helpdesk.application.actor import Actor
 from helpdesk.application.ports import UnitOfWork
+from helpdesk.application.tickets.access import require_staff
 from helpdesk.domain.ids import UserId
 from helpdesk.domain.users.user import User
 
@@ -18,3 +20,9 @@ class PeopleDirectory:
             return {}
         async with self._uow as uow:
             return {user.id: user for user in await uow.users.get_many(wanted)}
+
+    # Who a ticket can be assigned to. Customers have no use for the staff list.
+    async def staff(self, actor: Actor) -> list[User]:
+        require_staff(actor, "see who is on the team")
+        async with self._uow as uow:
+            return await uow.users.find_staff()

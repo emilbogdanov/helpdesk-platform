@@ -4,7 +4,7 @@ from fastapi import APIRouter, status
 
 from helpdesk.api.dependencies import ContainerDep, CurrentActor
 from helpdesk.api.errors import error_responses
-from helpdesk.api.schemas import Request, UserResponse
+from helpdesk.api.schemas import PersonResponse, Request, UserResponse
 from helpdesk.domain.ids import UserId
 from helpdesk.domain.roles import Role
 from helpdesk.domain.users.values import DisplayName, EmailAddress, Password
@@ -28,6 +28,12 @@ class RoleChangeRequest(Request):
 @router.get("/me")
 async def get_profile(actor: CurrentActor, container: ContainerDep) -> UserResponse:
     return UserResponse.from_user(await container.users().get_profile(actor))
+
+
+# Declared before /{user_id} so "staff" isn't read as an id.
+@router.get("/staff")
+async def list_staff(actor: CurrentActor, container: ContainerDep) -> list[PersonResponse]:
+    return [PersonResponse.from_user(user) for user in await container.people().staff(actor)]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
