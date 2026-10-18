@@ -1,0 +1,88 @@
+name: stack
+
+# Builds both images, starts everything with docker compose and drives the app in a real
+# browser, so a broken Dockerfile, compose file, nginx route or cross-layer change fails here.
+on:
+  push:
+    paths: &stack-paths
+      - "backend/**"
+      - "frontend/**"
+      - "docker-compose.yml"
+      - ".env.example"
+      - ".github/workflows/stack.yml"
+  pull_request:
+    paths: *stack-paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_ADMIN_EMAIL: ci.admin@northwind.test
+      E2E_ADMIN_PASSWORD: ci-admin-password-1
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: echo "HELPDESK_JWT_SECRET=$(openssl rand -hex 32)" > .env
+
+      - name: Build and start
+        run: docker compose up --build --detach
+
+      - name: Wait for the web front to reach the API
+        run: >-
+          curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors
+          http://localhost:8080/api/health
+
+      - name: Check the worker is running
+        run: |
+          for _ in $(seq 1 15); do
+            docker compose logs worker | grep -q "worker started" && exit 0
+            sleep 2
+          done
+          docker compose logs worker
+          exit 1
+
+      - name: Create the admin the test signs in with
+        run: >-
+          docker compose exec -T -e HELPDESK_PASSWORD="$E2E_ADMIN_PASSWORD" api
+          helpdesk create-admin --email "$E2E_ADMIN_EMAIL" --name "CI Admin"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Playwright
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: End-to-end test
+        working-directory: frontend
+        run: npm run test:e2e
+
+      - name: Keep the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
+
+      - name: Show logs
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop
+        if: always()
+        run: docker compose down --volumes

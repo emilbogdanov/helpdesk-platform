@@ -4,8 +4,6 @@ on:
   push:
     paths: &backend-paths
       - "backend/**"
-      - "docker-compose.yml"
-      - ".env.example"
       - ".github/workflows/backend.yml"
   pull_request:
     paths: *backend-paths
@@ -47,50 +45,3 @@ jobs:
 
       - name: Test
         run: uv run pytest
-
-  stack:
-    # Builds the real image and drives the running containers, so a broken Dockerfile or
-    # compose file fails here rather than on someone's laptop.
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Configure
-        run: echo "HELPDESK_JWT_SECRET=$(openssl rand -hex 32)" > .env
-
-      - name: Build and start
-        run: docker compose up --build --detach
-
-      - name: Wait for the API
-        run: >-
-          curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors
-          http://localhost:8000/health
-
-      - name: Bootstrap an admin and log in
-        run: |
-          docker compose exec -T -e HELPDESK_PASSWORD=ci-smoke-password-1 api \
-            helpdesk create-admin --email ci@helpdesk.test --name "CI"
-          curl --fail --silent --show-error http://localhost:8000/auth/token \
-            -H "Content-Type: application/json" \
-            -d '{"email": "ci@helpdesk.test", "password": "ci-smoke-password-1"}'
-
-      - name: Check the worker is running
-        run: |
-          for _ in $(seq 1 15); do
-            docker compose logs worker | grep -q "worker started" && exit 0
-            sleep 2
-          done
-          docker compose logs worker
-          exit 1
-
-      - name: Show logs
-        if: failure()
-        run: docker compose logs
-
-      - name: Stop
-        if: always()
-        run: docker compose down --volumes
