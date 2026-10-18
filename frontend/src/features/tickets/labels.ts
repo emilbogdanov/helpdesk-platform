@@ -28,9 +28,19 @@ export function statusLabel(status: TicketStatus, audience: Audience): string {
   return statusLabels[audience][status];
 }
 
+export const priorities: readonly Priority[] = ["low", "normal", "high", "urgent"];
+
 export const priorityLabels: Record<Priority, string> = {
   low: "Low",
   normal: "Normal",
   high: "High",
   urgent: "Urgent",
+};
+
+// Mirrors DEFAULT_FIRST_RESPONSE_TARGETS in the backend's domain/tickets/sla.py.
+export const firstResponseTargets: Record<Priority, string> = {
+  low: "within 3 days",
+  normal: "within a day",
+  high: "within 4 hours",
+  urgent: "within an hour",
 };

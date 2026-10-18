@@ -2,7 +2,10 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { unwrap } from "@/api/client";
 import { useApi } from "@/api/context";
+import type { components } from "@/api/schema";
 import type { TicketSort, TicketStatus, Visibility } from "@/api/types";
+
+export type NewTicket = components["schemas"]["OpenTicketRequest"];
 
 export interface TicketFilters {
   statuses: readonly TicketStatus[];
@@ -58,6 +61,26 @@ export function useComments(ticketId: string) {
       unwrap(
         api.GET("/tickets/{ticket_id}/comments", { params: { path: { ticket_id: ticketId } } }),
       ),
+  });
+}
+
+// The key is chosen once per form, so a resubmit after a timeout returns the ticket the
+// first attempt created instead of opening a duplicate.
+export function useOpenTicket(idempotencyKey: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ticket: NewTicket) =>
+      unwrap(
+        api.POST("/tickets", {
+          params: { header: { "Idempotency-Key": idempotencyKey } },
+          body: ticket,
+        }),
+      ),
+    onSuccess: (ticket) => {
+      queryClient.setQueryData(ticketKeys.detail(ticket.id), ticket);
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.lists() });
+    },
   });
 }
 

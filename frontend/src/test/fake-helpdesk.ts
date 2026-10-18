@@ -35,6 +35,7 @@ export class FakeHelpdesk {
   readonly tickets: Ticket[] = [];
   readonly comments = new Map<string, Comment[]>();
   readonly #tokens = new Map<string, User>();
+  readonly #idempotencyKeys = new Map<string, string>();
   #failProfileRequests = 0;
 
   constructor(accounts: Account[] = [petar, nadia, elena, maria]) {
@@ -170,6 +171,39 @@ export class FakeHelpdesk {
           items,
           next_cursor: hasMore ? String(offset + limit) : null,
         } satisfies Schemas["TicketListResponse"]);
+      }),
+
+      http.post("/api/tickets", async ({ request }) => {
+        const user = this.#authenticate(request);
+        if (!user) {
+          return refuse(401, "invalid_token", "token is invalid");
+        }
+        const body = (await request.json()) as Schemas["OpenTicketRequest"];
+        const key = request.headers.get("Idempotency-Key");
+        const earlier = key && this.#idempotencyKeys.get(`${user.id}:${key}`);
+        const replay = earlier && this.tickets.find((ticket) => ticket.id === earlier);
+        if (replay) {
+          return HttpResponse.json(replay, { status: 201 });
+        }
+        for (const field of ["subject", "description"] as const) {
+          if (!body[field].trim()) {
+            return refuse(422, "invalid_value", `${field} must not be blank`);
+          }
+        }
+        const account = this.accounts.find((candidate) => candidate.user.id === user.id);
+        if (!account) {
+          return refuse(401, "invalid_token", "token is invalid");
+        }
+        const ticket = this.seedTicket({
+          subject: body.subject,
+          description: body.description,
+          priority: body.priority ?? "normal",
+          requester: account,
+        });
+        if (key) {
+          this.#idempotencyKeys.set(`${user.id}:${key}`, ticket.id);
+        }
+        return HttpResponse.json(ticket, { status: 201 });
       }),
 
       http.get("/api/tickets/:ticketId", ({ request, params }) => {
