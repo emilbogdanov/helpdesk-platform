@@ -236,6 +236,24 @@ class TestComments:
         assert reply.json()["visibility"] == "public"
         assert ticket.json()["status"] == "in_progress"
 
+    async def test_first_public_staff_reply_shows_as_the_first_response(
+        self, client: AsyncClient, as_agent: Headers, uow: FakeUnitOfWork
+    ) -> None:
+        await seed(uow, TicketStatus.IN_PROGRESS)
+        url = f"/tickets/{TICKET_ID}"
+        await client.post(
+            f"{url}/comments",
+            json={"body": "Checking with billing.", "visibility": "internal"},
+            headers=as_agent,
+        )
+        before_reply = (await client.get(url, headers=as_agent)).json()
+        await client.post(f"{url}/comments", json={"body": "On it."}, headers=as_agent)
+        after_reply = (await client.get(url, headers=as_agent)).json()
+
+        assert before_reply["first_responded_at"] is None
+        assert after_reply["first_responded_at"] == "2026-10-12T09:14:00Z"
+        assert after_reply["sla_breached_at"] is None
+
     async def test_internal_notes_are_hidden_from_the_requester(
         self, client: AsyncClient, as_customer: Headers, as_agent: Headers, uow: FakeUnitOfWork
     ) -> None:

@@ -73,6 +73,9 @@ class TicketResponse(BaseModel):
     updated_at: datetime
     resolved_at: datetime | None
     closed_at: datetime | None
+    first_responded_at: datetime | None
+    # Set once nobody on staff replied within the first-response target for the priority.
+    sla_breached_at: datetime | None
 
     @classmethod
     def from_ticket(cls, ticket: Ticket) -> Self:
@@ -88,6 +91,8 @@ class TicketResponse(BaseModel):
             updated_at=ticket.updated_at,
             resolved_at=ticket.resolved_at,
             closed_at=ticket.closed_at,
+            first_responded_at=ticket.first_responded_at,
+            sla_breached_at=ticket.sla_breached_at,
         )
 
 
