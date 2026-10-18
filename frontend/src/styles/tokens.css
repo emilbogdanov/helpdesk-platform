@@ -1,0 +1,73 @@
+/*
+ * One palette for both themes: every colour is light-dark(light, dark), resolved by the
+ * colour scheme on the root. The scheme follows the OS unless data-theme pins it.
+ */
+:root {
+  color-scheme: light dark;
+
+  --color-canvas: light-dark(#f6f6f4, #111213);
+  --color-surface: light-dark(#ffffff, #18191b);
+  --color-surface-raised: light-dark(#ffffff, #202124);
+  --color-hover: light-dark(#efefec, #232427);
+  --color-selected: light-dark(#e7f1ef, #16302b);
+  --color-border: light-dark(#e3e3df, #2b2c30);
+  --color-border-strong: light-dark(#8f9196, #66686e);
+
+  --color-text: light-dark(#1c1d1f, #e6e6e3);
+  --color-text-muted: light-dark(#5c5e63, #a0a2a8);
+  --color-text-subtle: light-dark(#6c6e74, #878990);
+
+  --color-accent: light-dark(#0b7a69, #3fb39f);
+  --color-accent-hover: light-dark(#086456, #57c3b0);
+  --color-on-accent: light-dark(#ffffff, #0b1f1b);
+
+  --color-danger: light-dark(#b8322a, #ef6b61);
+  --color-danger-subtle: light-dark(#fbecea, #361815);
+  --color-warning: light-dark(#975700, #dca23f);
+  --color-warning-subtle: light-dark(#fcf2e1, #2f2410);
+  --color-success: light-dark(#2b7a30, #64be69);
+  --color-success-subtle: light-dark(#e9f4e9, #15281a);
+
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, monospace;
+
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --line-height-tight: 1.25;
+  --line-height-base: 1.5;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+
+  --control-height-sm: 28px;
+  --control-height: 32px;
+
+  --shadow-popover: 0 4px 16px light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.5));
+  --duration-fast: 120ms;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
