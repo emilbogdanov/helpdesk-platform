@@ -1,5 +1,15 @@
 name: helpdesk
 
+# One image runs as three services: migrate once, then the API and the worker.
+x-backend: &backend
+  build: ./backend
+  image: helpdesk-backend
+  environment:
+    HELPDESK_DATABASE_URL: postgresql+asyncpg://helpdesk:helpdesk@db:5432/helpdesk
+    HELPDESK_REDIS_URL: redis://redis:6379/0
+    HELPDESK_JWT_SECRET: ${HELPDESK_JWT_SECRET:?copy .env.example to .env and set HELPDESK_JWT_SECRET}
+    HELPDESK_LOG_LEVEL: ${HELPDESK_LOG_LEVEL:-INFO}
+
 services:
   db:
     image: postgres:17-alpine
@@ -26,6 +36,45 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # A separate one-shot step, so several API or worker replicas never race to migrate.
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    <<: *backend
+    command: ["helpdesk", "worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    # Time to finish the pass in progress after SIGTERM.
+    stop_grace_period: 30s
+    restart: unless-stopped
 
 volumes:
   pgdata:
