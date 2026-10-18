@@ -29,3 +29,8 @@ class IdempotencyKeyConflictError(ApplicationError):
     def __init__(self, key: str) -> None:
         super().__init__(f"idempotency key {key!r} is already taken")
         self.key = key
+
+
+class ConcurrentUpdateError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__("the ticket was changed by someone else; reload it and try again")

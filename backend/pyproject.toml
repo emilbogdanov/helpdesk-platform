@@ -64,4 +64,9 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = ["integration: needs Docker (or HELPDESK_TEST_DATABASE_URL) for a real Postgres"]
 xfail_strict = true
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # docker-py warns when a credential helper named in ~/.docker/config.json isn't on PATH;
+    # that is about the machine, not this code, so show it without failing the run.
+    "default:docker-credential-:UserWarning",
+]
