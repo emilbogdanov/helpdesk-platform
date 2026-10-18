@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -16,7 +16,9 @@ from helpdesk.application.tickets.queries import UNASSIGNED, TicketQuery
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment, Visibility
 from helpdesk.domain.tickets.events import TicketEvent
+from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.ticket import Ticket
+from helpdesk.domain.tickets.values import Priority
 from helpdesk.domain.users.user import User
 from helpdesk.domain.users.values import EmailAddress, Password
 
@@ -69,6 +71,36 @@ class InMemoryTicketRepository:
             cursor = (query.after.sort_value, query.after.ticket_id)
             matching = [t for t in matching if _beyond(query, (query.sort.key_of(t), t.id), cursor)]
         return [deepcopy(ticket) for ticket in matching[: query.limit]]
+
+    async def find_awaiting_first_response(
+        self, opened_before: Mapping[Priority, datetime], *, limit: int
+    ) -> list[TicketId]:
+        waiting = sorted(
+            (
+                ticket
+                for ticket in self.rows.values()
+                if ticket.first_responded_at is None
+                and ticket.sla_breached_at is None
+                and ticket.status
+                in {TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_ON_CUSTOMER}
+                and ticket.created_at <= opened_before[ticket.priority]
+            ),
+            key=lambda ticket: ticket.created_at,
+        )
+        return [ticket.id for ticket in waiting[:limit]]
+
+    async def find_resolved_before(self, cutoff: datetime, *, limit: int) -> list[TicketId]:
+        resolved = sorted(
+            (
+                ticket
+                for ticket in self.rows.values()
+                if ticket.status is TicketStatus.RESOLVED
+                and ticket.resolved_at is not None
+                and ticket.resolved_at <= cutoff
+            ),
+            key=lambda ticket: ticket.resolved_at or cutoff,
+        )
+        return [ticket.id for ticket in resolved[:limit]]
 
 
 class InMemoryCommentRepository:
@@ -139,9 +171,9 @@ class FakeTokenCodec:
 
 class InMemoryAuditLog:
     def __init__(self) -> None:
-        self.entries: list[tuple[UserId, TicketEvent]] = []
+        self.entries: list[tuple[UserId | None, TicketEvent]] = []
 
-    async def record(self, actor_id: UserId, events: Sequence[TicketEvent]) -> None:
+    async def record(self, actor_id: UserId | None, events: Sequence[TicketEvent]) -> None:
         self.entries.extend((actor_id, event) for event in events)
 
 
@@ -150,7 +182,7 @@ class _Snapshot:
     tickets: dict[TicketId, Ticket]
     idempotency_keys: dict[tuple[UserId, str], TicketId]
     comments: list[Comment]
-    audit: list[tuple[UserId, TicketEvent]]
+    audit: list[tuple[UserId | None, TicketEvent]]
     users: dict[UserId, User]
 
 

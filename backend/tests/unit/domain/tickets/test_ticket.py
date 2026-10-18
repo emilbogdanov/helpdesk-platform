@@ -44,6 +44,7 @@ class TestOpen:
         assert ticket.resolved_at is None
         assert ticket.closed_at is None
         assert ticket.first_responded_at is None
+        assert ticket.sla_breached_at is None
 
     def test_records_ticket_opened(self) -> None:
         ticket = open_ticket(Priority.HIGH)
@@ -266,6 +267,7 @@ class TestRehydration:
                 resolved_at=None,
                 closed_at=None,
                 first_responded_at=None,
+                sla_breached_at=None,
             )
 
     def test_records_no_events(self) -> None:
@@ -282,6 +284,7 @@ class TestRehydration:
             resolved_at=None,
             closed_at=None,
             first_responded_at=None,
+            sla_breached_at=None,
         )
 
         assert ticket.pull_events() == []

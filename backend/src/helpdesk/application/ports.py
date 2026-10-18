@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from types import TracebackType
@@ -9,6 +9,7 @@ from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment
 from helpdesk.domain.tickets.events import TicketEvent
 from helpdesk.domain.tickets.ticket import Ticket
+from helpdesk.domain.tickets.values import Priority
 from helpdesk.domain.users.user import User
 from helpdesk.domain.users.values import EmailAddress, Password
 
@@ -29,6 +30,14 @@ class TicketRepository(Protocol):
 
     # At most query.limit tickets in the query's sort order, starting after query.after.
     async def find(self, query: TicketQuery) -> list[Ticket]: ...
+
+    # Candidates for the worker, oldest first. Only a prefilter: the Ticket itself decides,
+    # after it is loaded, whether anything applies.
+    async def find_awaiting_first_response(
+        self, opened_before: Mapping[Priority, datetime], *, limit: int
+    ) -> list[TicketId]: ...
+
+    async def find_resolved_before(self, cutoff: datetime, *, limit: int) -> list[TicketId]: ...
 
 
 class CommentRepository(Protocol):
@@ -75,7 +84,8 @@ class TokenCodec(Protocol):
 
 class AuditLog(Protocol):
     # Domain events don't know who caused them; the audit trail needs that, so it's added here.
-    async def record(self, actor_id: UserId, events: Sequence[TicketEvent]) -> None: ...
+    # No actor means the system did it, e.g. the worker closing a ticket.
+    async def record(self, actor_id: UserId | None, events: Sequence[TicketEvent]) -> None: ...
 
 
 class UnitOfWork(Protocol):

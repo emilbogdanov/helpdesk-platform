@@ -1,9 +1,17 @@
+from typing import Any
+
 import pytest
+from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from helpdesk.application.tickets.queries import TicketCursor, TicketQuery, TicketSort
 from helpdesk.domain.tickets.status import TicketStatus
-from helpdesk.infrastructure.db.repositories import ticket_search
+from helpdesk.domain.tickets.values import Priority
+from helpdesk.infrastructure.db.repositories import (
+    awaiting_first_response,
+    resolved_before,
+    ticket_search,
+)
 from tests.unit.domain.tickets.builders import MILA, OPENED_AT, REQUESTER, TICKET_ID
 
 pytestmark = pytest.mark.integration
@@ -11,10 +19,8 @@ pytestmark = pytest.mark.integration
 CURSOR = TicketCursor(OPENED_AT, TICKET_ID)
 
 
-async def plan(engine: AsyncEngine, query: TicketQuery) -> str:
-    sql = ticket_search(query).compile(
-        dialect=engine.dialect, compile_kwargs={"literal_binds": True}
-    )
+async def plan(engine: AsyncEngine, statement: Select[Any]) -> str:
+    sql = statement.compile(dialect=engine.dialect, compile_kwargs={"literal_binds": True})
     async with engine.connect() as connection:
         # A test table is tiny, so Postgres would rightly scan it whole. Taking that option
         # away shows which index it would use once the table is big enough to matter.
@@ -54,4 +60,18 @@ async def plan(engine: AsyncEngine, query: TicketQuery) -> str:
 async def test_each_list_view_reads_its_index(
     engine: AsyncEngine, query: TicketQuery, index: str
 ) -> None:
-    assert index in await plan(engine, query)
+    assert index in await plan(engine, ticket_search(query))
+
+
+async def test_the_overdue_sweep_reads_its_partial_index(engine: AsyncEngine) -> None:
+    opened_before = dict.fromkeys(Priority, OPENED_AT)
+
+    query_plan = await plan(engine, awaiting_first_response(opened_before, limit=200))
+
+    assert "ix_tickets_awaiting_first_response" in query_plan
+
+
+async def test_the_auto_close_sweep_reads_its_partial_index(engine: AsyncEngine) -> None:
+    query_plan = await plan(engine, resolved_before(OPENED_AT, limit=200))
+
+    assert "ix_tickets_resolved_at" in query_plan

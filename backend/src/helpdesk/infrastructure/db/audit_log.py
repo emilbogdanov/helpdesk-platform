@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import fields
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.domain.ids import UserId
 from helpdesk.domain.tickets.events import (
     CommentAdded,
+    FirstResponseOverdue,
     TicketAssigneeChanged,
     TicketEvent,
     TicketOpened,
@@ -24,6 +26,7 @@ EVENT_TYPES: dict[type[TicketEvent], str] = {
     TicketAssigneeChanged: "assignee_changed",
     TicketPriorityChanged: "priority_changed",
     CommentAdded: "comment_added",
+    FirstResponseOverdue: "first_response_overdue",
 }
 
 # Already stored in their own columns.
@@ -34,7 +37,7 @@ class SqlAuditLog:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def record(self, actor_id: UserId, events: Sequence[TicketEvent]) -> None:
+    async def record(self, actor_id: UserId | None, events: Sequence[TicketEvent]) -> None:
         self._session.add_all(
             AuditEntryRow(
                 ticket_id=event.ticket_id,
@@ -56,5 +59,9 @@ def _payload(event: TicketEvent) -> dict[str, Any]:
 
 
 def _to_json(value: object) -> object:
-    # Enums are StrEnums and serialize as their value; only UUIDs need converting.
-    return str(value) if isinstance(value, UUID) else value
+    # Enums are StrEnums and serialize as their value already.
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value

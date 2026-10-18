@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -34,6 +35,13 @@ NAMING_CONVENTION = {
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
 }
+
+
+# Shared by the partial index and the worker's query, which must match it to use the index.
+AWAITING_FIRST_RESPONSE = (
+    "first_responded_at IS NULL AND sla_breached_at IS NULL"
+    " AND status IN ('open', 'in_progress', 'waiting_on_customer')"
+)
 
 
 class Base(DeclarativeBase):
@@ -84,6 +92,7 @@ class TicketRow(Base):
     resolved_at: Mapped[datetime | None]
     closed_at: Mapped[datetime | None]
     first_responded_at: Mapped[datetime | None]
+    sla_breached_at: Mapped[datetime | None]
     idempotency_key: Mapped[str | None] = mapped_column(String(255))
     # Optimistic locking: an UPDATE only matches the version that was read, so two agents
     # editing the same ticket can't silently overwrite each other.
@@ -102,6 +111,18 @@ class TicketRow(Base):
         Index("ix_tickets_requester_id_created_at_id", "requester_id", "created_at", "id"),
         Index("ix_tickets_status_created_at_id", "status", "created_at", "id"),
         Index("ix_tickets_assignee_id_updated_at_id", "assignee_id", "updated_at", "id"),
+        # Partial indexes for the worker: they hold only the tickets it still has to look at,
+        # so they stay small no matter how much history piles up.
+        Index(
+            "ix_tickets_awaiting_first_response",
+            "created_at",
+            postgresql_where=text(AWAITING_FIRST_RESPONSE),
+        ),
+        Index(
+            "ix_tickets_resolved_at",
+            "resolved_at",
+            postgresql_where=text("status = 'resolved'"),
+        ),
     )
 
 
@@ -123,7 +144,8 @@ class AuditEntryRow(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     ticket_id: Mapped[UUID] = mapped_column(ForeignKey("tickets.id"))
-    actor_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    # Null for changes the system made on its own, such as auto-closing a ticket.
+    actor_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
     event_type: Mapped[str] = mapped_column(String(64))
     occurred_at: Mapped[datetime]
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)

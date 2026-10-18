@@ -1,6 +1,9 @@
+from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
+from uuid import UUID
 
-from sqlalchemy import Select, literal, select, tuple_
+from sqlalchemy import Select, and_, literal, or_, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,11 +11,17 @@ from helpdesk.application.errors import EmailTakenError, IdempotencyKeyConflictE
 from helpdesk.application.tickets.queries import UNASSIGNED, TicketQuery
 from helpdesk.domain.ids import CommentId, TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment, CommentBody, Visibility
+from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.ticket import Ticket
-from helpdesk.domain.tickets.values import Description, Subject
+from helpdesk.domain.tickets.values import Description, Priority, Subject
 from helpdesk.domain.users.user import User
 from helpdesk.domain.users.values import DisplayName, EmailAddress
-from helpdesk.infrastructure.db.tables import CommentRow, TicketRow, UserRow
+from helpdesk.infrastructure.db.tables import (
+    AWAITING_FIRST_RESPONSE,
+    CommentRow,
+    TicketRow,
+    UserRow,
+)
 
 
 class SqlTicketRepository:
@@ -63,6 +72,16 @@ class SqlTicketRepository:
     async def find(self, query: TicketQuery) -> list[Ticket]:
         rows = await self._session.scalars(ticket_search(query))
         return [_ticket_from_row(row) for row in rows]
+
+    async def find_awaiting_first_response(
+        self, opened_before: Mapping[Priority, datetime], *, limit: int
+    ) -> list[TicketId]:
+        ids = await self._session.scalars(awaiting_first_response(opened_before, limit=limit))
+        return [TicketId(ticket_id) for ticket_id in ids]
+
+    async def find_resolved_before(self, cutoff: datetime, *, limit: int) -> list[TicketId]:
+        ids = await self._session.scalars(resolved_before(cutoff, limit=limit))
+        return [TicketId(ticket_id) for ticket_id in ids]
 
     def _track(self, row: TicketRow | None) -> Ticket | None:
         if row is None:
@@ -166,6 +185,32 @@ def ticket_search(query: TicketQuery) -> Select[TicketRow]:
     ).limit(query.limit)
 
 
+def awaiting_first_response(
+    opened_before: Mapping[Priority, datetime], *, limit: int
+) -> Select[UUID]:
+    overdue_for_its_priority = or_(
+        *(
+            and_(TicketRow.priority == priority, TicketRow.created_at <= cutoff)
+            for priority, cutoff in opened_before.items()
+        )
+    )
+    return (
+        select(TicketRow.id)
+        .where(text(AWAITING_FIRST_RESPONSE), overdue_for_its_priority)
+        .order_by(TicketRow.created_at)
+        .limit(limit)
+    )
+
+
+def resolved_before(cutoff: datetime, *, limit: int) -> Select[UUID]:
+    return (
+        select(TicketRow.id)
+        .where(TicketRow.status == TicketStatus.RESOLVED, TicketRow.resolved_at <= cutoff)
+        .order_by(TicketRow.resolved_at)
+        .limit(limit)
+    )
+
+
 def _ticket_columns(ticket: Ticket) -> dict[str, Any]:
     return {
         "id": ticket.id,
@@ -180,6 +225,7 @@ def _ticket_columns(ticket: Ticket) -> dict[str, Any]:
         "resolved_at": ticket.resolved_at,
         "closed_at": ticket.closed_at,
         "first_responded_at": ticket.first_responded_at,
+        "sla_breached_at": ticket.sla_breached_at,
     }
 
 
@@ -197,6 +243,7 @@ def _ticket_from_row(row: TicketRow) -> Ticket:
         resolved_at=row.resolved_at,
         closed_at=row.closed_at,
         first_responded_at=row.first_responded_at,
+        sla_breached_at=row.sla_breached_at,
     )
 
 

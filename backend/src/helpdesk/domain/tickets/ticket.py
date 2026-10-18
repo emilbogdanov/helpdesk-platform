@@ -12,6 +12,7 @@ from helpdesk.domain.tickets.errors import (
 )
 from helpdesk.domain.tickets.events import (
     CommentAdded,
+    FirstResponseOverdue,
     TicketAssigneeChanged,
     TicketEvent,
     TicketOpened,
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from helpdesk.domain.ids import CommentId, TicketId, UserId
     from helpdesk.domain.roles import Role
     from helpdesk.domain.tickets.comment import CommentBody
+    from helpdesk.domain.tickets.sla import FirstResponseTargets
     from helpdesk.domain.tickets.values import Description, Priority, Subject
 
 # A reply from the requester means the ticket needs attention again: while we wait on them it
@@ -54,6 +56,7 @@ class Ticket:
         resolved_at: datetime | None,
         closed_at: datetime | None,
         first_responded_at: datetime | None,
+        sla_breached_at: datetime | None,
     ) -> None:
         if status.requires_assignee and assignee_id is None:
             raise AssigneeRequiredError(status)
@@ -69,6 +72,7 @@ class Ticket:
         self._resolved_at = resolved_at
         self._closed_at = closed_at
         self._first_responded_at = first_responded_at
+        self._sla_breached_at = sla_breached_at
         self._events: list[TicketEvent] = []
 
     @classmethod
@@ -95,6 +99,7 @@ class Ticket:
             resolved_at=None,
             closed_at=None,
             first_responded_at=None,
+            sla_breached_at=None,
         )
         ticket._events.append(
             TicketOpened(
@@ -155,6 +160,12 @@ class Ticket:
     @property
     def first_responded_at(self) -> datetime | None:
         return self._first_responded_at
+
+    # When the first-response target passed with no reply. Stays set after a late reply:
+    # the breach happened and shows up in reporting either way.
+    @property
+    def sla_breached_at(self) -> datetime | None:
+        return self._sla_breached_at
 
     def change_status(self, target: TicketStatus, *, at: datetime) -> None:
         self._ensure_not_closed()
@@ -238,6 +249,27 @@ class Ticket:
             if follow_up is not None:
                 self._move_to(follow_up, at)
         return comment
+
+    def flag_overdue_first_response(self, targets: FirstResponseTargets, *, at: datetime) -> None:
+        if self._sla_breached_at is not None or self._first_responded_at is not None:
+            return
+        # Resolved or closed without a reply (spam, duplicates) means nobody is waiting.
+        if self._status in {TicketStatus.RESOLVED, TicketStatus.CLOSED}:
+            return
+        due_at = targets.due_at(self._priority, self._created_at)
+        if at < due_at:
+            return
+        # updated_at is left alone: it tracks what people did to the ticket, and this flag is
+        # bookkeeping that shouldn't push the ticket up a "recently updated" list.
+        self._sla_breached_at = at
+        self._events.append(FirstResponseOverdue(ticket_id=self._id, occurred_at=at, due_at=due_at))
+
+    def close_if_resolved_before(self, cutoff: datetime, *, at: datetime) -> None:
+        if self._status is not TicketStatus.RESOLVED:
+            return
+        if self._resolved_at is None or self._resolved_at > cutoff:
+            return
+        self._move_to(TicketStatus.CLOSED, at)
 
     def pull_events(self) -> list[TicketEvent]:
         events, self._events = self._events, []

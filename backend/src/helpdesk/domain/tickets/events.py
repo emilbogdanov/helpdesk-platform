@@ -42,3 +42,8 @@ class CommentAdded(TicketEvent):
     comment_id: CommentId
     author_id: UserId
     visibility: Visibility
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FirstResponseOverdue(TicketEvent):
+    due_at: datetime

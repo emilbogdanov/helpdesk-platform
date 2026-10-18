@@ -42,6 +42,7 @@ def catalogue_ticket(
         resolved_at=None,
         closed_at=None,
         first_responded_at=None,
+        sla_breached_at=None,
     )
 
 

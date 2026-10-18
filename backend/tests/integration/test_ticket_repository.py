@@ -44,6 +44,7 @@ def state_of(ticket: Ticket) -> dict[str, object]:
         "resolved_at": ticket.resolved_at,
         "closed_at": ticket.closed_at,
         "first_responded_at": ticket.first_responded_at,
+        "sla_breached_at": ticket.sla_breached_at,
     }
 
 
