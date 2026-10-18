@@ -154,12 +154,20 @@ export class FakeHelpdesk {
         }
         const query = new URL(request.url).searchParams;
         const statuses = query.getAll("status");
+        const priorities = query.getAll("priority");
+        const assignee = query.get("assignee");
         const sort = query.get("sort") ?? "newest";
         const limit = Number(query.get("limit") ?? 25);
         const offset = Number(query.get("cursor") ?? 0);
         const matching = this.tickets
           .filter((ticket) => this.#canSee(user, ticket))
           .filter((ticket) => statuses.length === 0 || statuses.includes(ticket.status))
+          .filter((ticket) => priorities.length === 0 || priorities.includes(ticket.priority))
+          .filter((ticket) => {
+            if (assignee === null || user.role === "customer") return true;
+            if (assignee === "unassigned") return ticket.assignee === null;
+            return ticket.assignee?.id === (assignee === "me" ? user.id : assignee);
+          })
           .sort((a, b) => {
             const key = sort === "recently_updated" ? "updated_at" : "created_at";
             const order = a[key].localeCompare(b[key]);

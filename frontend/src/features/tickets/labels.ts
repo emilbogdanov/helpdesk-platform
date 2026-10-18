@@ -37,7 +37,7 @@ export const priorityLabels: Record<Priority, string> = {
   urgent: "Urgent",
 };
 
-// Mirrors DEFAULT_FIRST_RESPONSE_TARGETS in the backend's domain/tickets/sla.py.
+// The same targets as firstResponseTargetMs in workflow.ts, in words.
 export const firstResponseTargets: Record<Priority, string> = {
   low: "within 3 days",
   normal: "within a day",

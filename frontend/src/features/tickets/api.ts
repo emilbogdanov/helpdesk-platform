@@ -3,13 +3,15 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { unwrap } from "@/api/client";
 import { useApi } from "@/api/context";
 import type { components } from "@/api/schema";
-import type { TicketSort, TicketStatus, Visibility } from "@/api/types";
+import type { Priority, TicketSort, TicketStatus, Visibility } from "@/api/types";
 
 export type NewTicket = components["schemas"]["OpenTicketRequest"];
 
 export interface TicketFilters {
   statuses: readonly TicketStatus[];
   sort: TicketSort;
+  priority?: Priority | null;
+  assignee?: "me" | "unassigned" | null;
 }
 
 const PAGE_SIZE = 25;
@@ -33,6 +35,8 @@ export function useTicketList(filters: TicketFilters) {
             query: {
               status: [...filters.statuses],
               sort: filters.sort,
+              priority: filters.priority ? [filters.priority] : [],
+              assignee: filters.assignee ?? null,
               limit: PAGE_SIZE,
               cursor: pageParam,
             },

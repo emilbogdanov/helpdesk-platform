@@ -46,7 +46,7 @@ export function AppShell() {
             </Link>
             <nav aria-label="Main" className={styles.nav}>
               <NavLink to="/tickets" className={styles.navLink}>
-                Tickets
+                {user.role === "customer" ? "Tickets" : "Queue"}
               </NavLink>
             </nav>
           </div>

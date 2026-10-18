@@ -1,11 +1,14 @@
+import { useRef } from "react";
 import { Link } from "react-router";
 
 import type { Ticket, TicketSort } from "@/api/types";
+import { FirstResponseNote } from "@/features/tickets/FirstResponseNote";
 import type { Audience } from "@/features/tickets/labels";
 import { PriorityLabel } from "@/features/tickets/PriorityLabel";
 import { StatusBadge } from "@/features/tickets/StatusBadge";
 import styles from "@/features/tickets/TicketTable.module.css";
 import { formatDateTime, formatRelative } from "@/lib/format";
+import { useHotkeys } from "@/lib/use-hotkeys";
 
 interface TicketTableProps {
   tickets: Ticket[];
@@ -16,10 +19,29 @@ interface TicketTableProps {
 
 export function TicketTable({ tickets, audience, sort, onSort }: TicketTableProps) {
   const showPeople = audience === "staff";
+  const table = useRef<HTMLTableElement>(null);
+
+  // j and k walk the rows by moving focus between the subject links; Enter opens one.
+  function moveFocus(step: 1 | -1) {
+    const links = Array.from(table.current?.querySelectorAll<HTMLAnchorElement>("tbody a") ?? []);
+    const current = links.findIndex((link) => link === document.activeElement);
+    const next = current === -1 ? (step === 1 ? 0 : links.length - 1) : current + step;
+    links[Math.min(Math.max(next, 0), links.length - 1)]?.focus();
+  }
+
+  useHotkeys({
+    j: () => {
+      moveFocus(1);
+    },
+    k: () => {
+      moveFocus(-1);
+    },
+  });
+
   const openedSort = sort === "oldest" ? "ascending" : sort === "newest" ? "descending" : "none";
 
   return (
-    <table className={styles.table}>
+    <table ref={table} className={styles.table}>
       <thead>
         <tr>
           <th scope="col" className={styles.subject}>
@@ -29,6 +51,7 @@ export function TicketTable({ tickets, audience, sort, onSort }: TicketTableProp
           <th scope="col">Status</th>
           <th scope="col">Priority</th>
           {showPeople && <th scope="col">Assignee</th>}
+          {showPeople && <th scope="col">First reply</th>}
           <th scope="col" aria-sort={openedSort}>
             <button
               type="button"
@@ -73,6 +96,11 @@ export function TicketTable({ tickets, audience, sort, onSort }: TicketTableProp
             {showPeople && (
               <td className={ticket.assignee ? undefined : styles.muted}>
                 {ticket.assignee?.display_name ?? "Unassigned"}
+              </td>
+            )}
+            {showPeople && (
+              <td>
+                <FirstResponseNote ticket={ticket} compact />
               </td>
             )}
             <td className={styles.time}>

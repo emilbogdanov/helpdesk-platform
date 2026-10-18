@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
@@ -116,7 +116,7 @@ describe("the ticket list", () => {
   it("shows staff every customer's tickets with requester and assignee", async () => {
     renderApp("/tickets", { signedInAs: elena, helpdesk: helpdeskWithPetarsTickets() });
 
-    expect(await screen.findByRole("heading", { name: "All tickets" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Queue" })).toBeVisible();
     const row = await screen.findByRole("row", { name: /Checkout returns 500/ });
     expect(within(row).getByText("Petar Georgiev")).toBeVisible();
     expect(within(row).getByText("Elena Dimitrova")).toBeVisible();
@@ -135,5 +135,86 @@ describe("the ticket list", () => {
     await user.click(await screen.findByRole("button", { name: "Try again" }));
 
     expect(await screen.findByRole("table")).toBeVisible();
+  });
+
+  it("lets staff narrow the queue to unassigned urgent tickets", async () => {
+    const helpdesk = helpdeskWithPetarsTickets();
+    helpdesk.seedTicket({
+      subject: "Payments page down for all customers",
+      requester: nadia,
+      priority: "urgent",
+    });
+    helpdesk.seedTicket({
+      subject: "Refund stuck in pending",
+      requester: nadia,
+      priority: "urgent",
+      assignee: elena,
+      status: "in_progress",
+    });
+    const { user, router } = renderApp("/tickets", { signedInAs: elena, helpdesk });
+    await screen.findByRole("table");
+
+    await user.selectOptions(screen.getByLabelText("Assignee"), "Unassigned");
+    await user.selectOptions(screen.getByLabelText("Priority"), "Urgent");
+
+    await waitFor(() => {
+      expect(subjectsInTable()).toEqual(["Payments page down for all customers"]);
+    });
+    expect(new URLSearchParams(router.state.location.search).get("assignee")).toBe("unassigned");
+    expect(new URLSearchParams(router.state.location.search).get("priority")).toBe("urgent");
+  });
+
+  it("flags tickets whose first reply is overdue", async () => {
+    const helpdesk = new FakeHelpdesk();
+    helpdesk.seedTicket({
+      subject: "Payments page down for all customers",
+      requester: nadia,
+      priority: "urgent",
+      createdAt: minutesAgo(95),
+    });
+    helpdesk.seedTicket({
+      subject: "Typo on the pricing page",
+      requester: nadia,
+      priority: "low",
+      createdAt: minutesAgo(30),
+    });
+    renderApp("/tickets", { signedInAs: elena, helpdesk });
+
+    const urgent = await screen.findByRole("row", { name: /Payments page down/ });
+    expect(within(urgent).getByText("Overdue")).toBeVisible();
+    const low = screen.getByRole("row", { name: /Typo on the pricing page/ });
+    expect(within(low).getByText(/^Due in (2|3) days$/)).toBeVisible();
+  });
+
+  it("moves through tickets with j and k and opens one with Enter", async () => {
+    const { user, router } = renderApp("/tickets", {
+      signedInAs: petar,
+      helpdesk: helpdeskWithPetarsTickets(),
+    });
+    await screen.findByRole("table");
+    const checkout = screen.getByRole("link", { name: /Checkout returns 500/ });
+    const invoice = screen.getByRole("link", { name: /Invoice PDF/ });
+
+    await user.keyboard("j");
+    expect(checkout).toHaveFocus();
+    await user.keyboard("j");
+    expect(invoice).toHaveFocus();
+    await user.keyboard("k");
+    expect(checkout).toHaveFocus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toMatch(/^\/tickets\/[0-9a-f-]{36}$/);
+    });
+  });
+
+  it("starts a new ticket when a customer presses c", async () => {
+    const { user, router } = renderApp("/tickets", { signedInAs: nadia });
+    await screen.findByText("Nothing open right now");
+
+    await user.keyboard("c");
+
+    expect(await screen.findByRole("heading", { name: "New ticket" })).toBeVisible();
+    expect(router.state.location.pathname).toBe("/tickets/new");
   });
 });

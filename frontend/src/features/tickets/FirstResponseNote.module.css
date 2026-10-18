@@ -1,0 +1,12 @@
+.done {
+  color: var(--color-text-subtle);
+}
+
+.due {
+  color: var(--color-text);
+}
+
+.overdue {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-semibold);
+}
