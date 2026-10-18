@@ -183,6 +183,25 @@ describe("a ticket, worked by staff", () => {
     });
   });
 
+  it("writes internal notes that the customer never sees", async () => {
+    const { helpdesk, ticket } = unassignedTicket();
+    const { user } = renderApp(`/tickets/${ticket.id}`, { signedInAs: elena, helpdesk });
+    await screen.findByRole("complementary", { name: "Ticket properties" });
+
+    await user.click(screen.getByRole("radio", { name: "Internal note" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Internal note" }),
+      "Reproduced on staging, limit is in the exporter.",
+    );
+    await user.click(screen.getByRole("button", { name: "Add note" }));
+
+    const note = await (await conversation()).findByText(/Reproduced on staging/);
+    expect(
+      within(note.closest("article") ?? document.body).getByText("Internal note"),
+    ).toBeVisible();
+    expect(helpdesk.comments.get(ticket.id)?.[0]?.visibility).toBe("internal");
+  });
+
   it("keeps a closed ticket's properties read-only", async () => {
     const helpdesk = new FakeHelpdesk();
     const ticket = helpdesk.seedTicket({

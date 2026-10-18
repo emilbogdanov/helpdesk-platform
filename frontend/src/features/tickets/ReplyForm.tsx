@@ -1,18 +1,21 @@
 import { useState, type SubmitEvent } from "react";
 import { Link } from "react-router";
 
-import type { Ticket } from "@/api/types";
+import type { Ticket, Visibility } from "@/api/types";
 import { useAddComment } from "@/features/tickets/api";
 import { submitErrorMessage } from "@/features/tickets/errors";
 import type { Audience } from "@/features/tickets/labels";
 import styles from "@/features/tickets/ReplyForm.module.css";
 import { Button } from "@/ui/Button";
+import { classNames } from "@/ui/class-names";
 import { Notice } from "@/ui/Notice";
 import { TextArea } from "@/ui/TextArea";
 
 export function ReplyForm({ ticket, audience }: { ticket: Ticket; audience: Audience }) {
   const [body, setBody] = useState("");
+  const [visibility, setVisibility] = useState<Visibility>("public");
   const addComment = useAddComment(ticket.id);
+  const isNote = visibility === "internal";
 
   if (ticket.status === "closed") {
     return (
@@ -26,7 +29,7 @@ export function ReplyForm({ ticket, audience }: { ticket: Ticket; audience: Audi
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     addComment.mutate(
-      { body },
+      { body, visibility },
       {
         onSuccess: () => {
           setBody("");
@@ -38,9 +41,38 @@ export function ReplyForm({ ticket, audience }: { ticket: Ticket; audience: Audi
   return (
     <form className={styles.form} onSubmit={submit} aria-label="Reply">
       {audience === "requester" && <RequesterHint status={ticket.status} />}
+      {audience === "staff" && (
+        <fieldset className={styles.visibility}>
+          <legend className={styles.legend}>Who sees this</legend>
+          {(
+            [
+              ["public", "Reply to customer"],
+              ["internal", "Internal note"],
+            ] as const
+          ).map(([value, label]) => (
+            <label
+              key={value}
+              className={classNames(styles.option, visibility === value && styles.chosen)}
+            >
+              <input
+                type="radio"
+                name="visibility"
+                value={value}
+                checked={visibility === value}
+                onChange={() => {
+                  setVisibility(value);
+                }}
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+      )}
       {addComment.error && <Notice tone="danger">{submitErrorMessage(addComment.error)}</Notice>}
       <TextArea
-        label="Your reply"
+        className={isNote ? styles.note : undefined}
+        hint={isNote ? "Only agents and admins can see internal notes." : undefined}
+        label={isNote ? "Internal note" : "Your reply"}
         name="body"
         required
         maxLength={10_000}
@@ -52,7 +84,7 @@ export function ReplyForm({ ticket, audience }: { ticket: Ticket; audience: Audi
       />
       <div>
         <Button type="submit" variant="primary" disabled={addComment.isPending || !body.trim()}>
-          {addComment.isPending ? "Sending…" : "Send reply"}
+          {addComment.isPending ? "Sending…" : isNote ? "Add note" : "Send reply"}
         </Button>
       </div>
     </form>

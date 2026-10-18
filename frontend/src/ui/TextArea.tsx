@@ -1,5 +1,6 @@
 import { useId, type ComponentProps, type ReactNode } from "react";
 
+import { classNames } from "@/ui/class-names";
 import styles from "@/ui/TextField.module.css";
 
 interface TextAreaProps extends Omit<ComponentProps<"textarea">, "id"> {
@@ -8,7 +9,7 @@ interface TextAreaProps extends Omit<ComponentProps<"textarea">, "id"> {
   error?: ReactNode;
 }
 
-export function TextArea({ label, hint, error, ...textarea }: TextAreaProps) {
+export function TextArea({ label, hint, error, className, ...textarea }: TextAreaProps) {
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
@@ -21,7 +22,7 @@ export function TextArea({ label, hint, error, ...textarea }: TextAreaProps) {
       </label>
       <textarea
         id={id}
-        className={styles.textarea}
+        className={classNames(styles.textarea, className)}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy || undefined}
         {...textarea}
