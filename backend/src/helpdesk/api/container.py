@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from helpdesk.application.ports import Clock, PasswordHasher, TokenCodec, UnitOfWork
+from helpdesk.application.tickets.comment_service import CommentService
+from helpdesk.application.tickets.ticket_service import TicketService
 from helpdesk.application.users.auth_service import AuthService
 from helpdesk.application.users.user_service import UserService
 
@@ -26,6 +28,12 @@ class Container:
         return AuthService(
             self.uow_factory(), self.hasher, self.tokens, self.clock, token_ttl=self.token_ttl
         )
+
+    def tickets(self) -> TicketService:
+        return TicketService(self.uow_factory(), self.clock)
+
+    def comments(self) -> CommentService:
+        return CommentService(self.uow_factory(), self.clock)
 
     def users(self) -> UserService:
         return UserService(self.uow_factory(), self.hasher, self.clock)

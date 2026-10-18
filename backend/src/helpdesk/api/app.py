@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 from helpdesk.api.container import Container
 from helpdesk.api.errors import register_error_handlers
-from helpdesk.api.routes import auth, users
+from helpdesk.api.routes import auth, tickets, users
 
 
 def create_app(container: Container) -> FastAPI:
@@ -17,6 +17,6 @@ def create_app(container: Container) -> FastAPI:
     app = FastAPI(title="Helpdesk", version="0.1.0", lifespan=lifespan)
     app.state.container = container
     register_error_handlers(app)
-    for router in (auth.router, users.router):
+    for router in (auth.router, tickets.router, users.router):
         app.include_router(router)
     return app
