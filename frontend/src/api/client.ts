@@ -22,7 +22,7 @@ export function createApiClient(options: ClientOptions = {}) {
   return createClient<paths>({ baseUrl: "/api", ...options });
 }
 
-export const api = createApiClient();
+export type ApiClient = ReturnType<typeof createApiClient>;
 
 interface Outcome<Data> {
   data?: Data;
