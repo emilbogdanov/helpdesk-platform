@@ -28,6 +28,8 @@ The React frontend is in progress; this release is the API, the worker and the a
   creating a duplicate.
 - Optimistic locking: two agents editing the same ticket get a `409 concurrent_update` instead
   of one silently overwriting the other.
+- Tickets and comments name the people on them (`{id, display_name, role}`), so a customer can
+  see who replied without being able to look up accounts.
 - Every error has the same shape, `{"detail", "code"}`, with a stable `code` to branch on.
 - `helpdesk` CLI to bootstrap the first admin, reset a lost password and run the worker.
 
@@ -115,12 +117,16 @@ $ curl -s localhost:8000/tickets -H 'Content-Type: application/json' -H "Authori
     -d '{"subject": "Checkout returns 500 when the cart has a gift card", "description": "Every order with a gift card fails at the payment step since this morning. Orders without one go through.", "priority": "high"}' | jq
 {
   "id": "5013d606-fa10-4d29-9850-c388206e56b8",
-  "requester_id": "910d416c-47ec-4903-b405-b0a88def47cc",
+  "requester": {
+    "id": "910d416c-47ec-4903-b405-b0a88def47cc",
+    "display_name": "Petar Georgiev",
+    "role": "customer"
+  },
   "subject": "Checkout returns 500 when the cart has a gift card",
   "description": "Every order with a gift card fails at the payment step since this morning. Orders without one go through.",
   "priority": "high",
   "status": "open",
-  "assignee_id": null,
+  "assignee": null,
   "created_at": "2026-10-18T14:16:32.634067Z",
   "updated_at": "2026-10-18T14:16:32.634067Z",
   "resolved_at": null,
@@ -141,8 +147,8 @@ Sending the same request again with the same key returns the ticket from the fir
 
 ```console
 $ TICKET=5013d606-fa10-4d29-9850-c388206e56b8
-$ curl -s -X POST localhost:8000/tickets/$TICKET/take -H "Authorization: Bearer $AGENT" | jq -c '{status, assignee_id}'
-{"status":"open","assignee_id":"eaaeee17-af3c-4a5b-aa7c-fb571b282210"}
+$ curl -s -X POST localhost:8000/tickets/$TICKET/take -H "Authorization: Bearer $AGENT" | jq -c '{status, assignee: .assignee.display_name}'
+{"status":"open","assignee":"Elena Dimitrova"}
 $ curl -s -X PUT localhost:8000/tickets/$TICKET/status -H 'Content-Type: application/json' -H "Authorization: Bearer $AGENT" \
     -d '{"status": "in_progress"}' | jq -c '{status}'
 {"status":"in_progress"}
@@ -155,8 +161,8 @@ $ curl -s localhost:8000/tickets/$TICKET/comments -H 'Content-Type: application/
 The customer sees the public reply only, and the reply counts as the first response:
 
 ```console
-$ curl -s localhost:8000/tickets/$TICKET/comments -H "Authorization: Bearer $CUSTOMER" | jq -c '.[] | {visibility, body}'
-{"visibility":"public","body":"We can reproduce this and a fix is going out today. We will update this ticket when it is live."}
+$ curl -s localhost:8000/tickets/$TICKET/comments -H "Authorization: Bearer $CUSTOMER" | jq -c '.[] | {author: .author.display_name, visibility, body}'
+{"author":"Elena Dimitrova","visibility":"public","body":"We can reproduce this and a fix is going out today. We will update this ticket when it is live."}
 $ curl -s localhost:8000/tickets/$TICKET -H "Authorization: Bearer $CUSTOMER" | jq -c '{status, first_responded_at}'
 {"status":"in_progress","first_responded_at":"2026-10-18T14:16:32.722955Z"}
 ```

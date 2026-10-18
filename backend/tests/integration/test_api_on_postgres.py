@@ -161,7 +161,7 @@ async def test_support_conversation_through_the_real_stack(client: AsyncClient) 
 
     assert agent.status_code == 201
     assert opened.status_code == 201
-    assert taken.json()["assignee_id"] == agent.json()["id"]
+    assert taken.json()["assignee"]["id"] == agent.json()["id"]
     assert final.json()["status"] == "in_progress"
     assert [comment["body"] for comment in thread.json()] == [
         "Which browser are you using?",

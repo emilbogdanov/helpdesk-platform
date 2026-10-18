@@ -293,11 +293,7 @@ export interface components {
              * Format: uuid
              */
             ticket_id: string;
-            /**
-             * Author Id
-             * Format: uuid
-             */
-            author_id: string;
+            author: components["schemas"]["PersonResponse"];
             /** Body */
             body: string;
             visibility: components["schemas"]["Visibility"];
@@ -336,6 +332,17 @@ export interface components {
             description: string;
             /** @default normal */
             priority: components["schemas"]["Priority"];
+        };
+        /** PersonResponse */
+        PersonResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Display Name */
+            display_name: string;
+            role: components["schemas"]["Role"];
         };
         /**
          * Priority
@@ -382,19 +389,14 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /**
-             * Requester Id
-             * Format: uuid
-             */
-            requester_id: string;
+            requester: components["schemas"]["PersonResponse"];
             /** Subject */
             subject: string;
             /** Description */
             description: string;
             priority: components["schemas"]["Priority"];
             status: components["schemas"]["TicketStatus"];
-            /** Assignee Id */
-            assignee_id: string | null;
+            assignee: components["schemas"]["PersonResponse"] | null;
             /**
              * Created At
              * Format: date-time

@@ -1,3 +1,4 @@
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
@@ -5,10 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, Header, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from helpdesk.api.container import Container
 from helpdesk.api.cursors import decode_cursor, encode_cursor
 from helpdesk.api.dependencies import ContainerDep, CurrentActor
 from helpdesk.api.errors import error_responses
-from helpdesk.api.schemas import Request
+from helpdesk.api.schemas import PersonResponse, Request
 from helpdesk.application.actor import Actor
 from helpdesk.application.tickets.queries import (
     MAX_PAGE_SIZE,
@@ -22,6 +24,7 @@ from helpdesk.domain.tickets.comment import Comment, CommentBody, Visibility
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.ticket import Ticket
 from helpdesk.domain.tickets.values import Description, Priority, Subject
+from helpdesk.domain.users.user import User
 
 router = APIRouter(
     prefix="/tickets", tags=["tickets"], responses=error_responses(401, 403, 404, 409, 422)
@@ -63,12 +66,12 @@ class AddCommentRequest(Request):
 
 class TicketResponse(BaseModel):
     id: UUID
-    requester_id: UUID
+    requester: PersonResponse
     subject: str
     description: str
     priority: Priority
     status: TicketStatus
-    assignee_id: UUID | None
+    assignee: PersonResponse | None
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None
@@ -78,15 +81,16 @@ class TicketResponse(BaseModel):
     sla_breached_at: datetime | None
 
     @classmethod
-    def from_ticket(cls, ticket: Ticket) -> Self:
+    def from_ticket(cls, ticket: Ticket, people: Mapping[UserId, User]) -> Self:
+        assignee = people[ticket.assignee_id] if ticket.assignee_id else None
         return cls(
             id=ticket.id,
-            requester_id=ticket.requester_id,
+            requester=PersonResponse.from_user(people[ticket.requester_id]),
             subject=str(ticket.subject),
             description=str(ticket.description),
             priority=ticket.priority,
             status=ticket.status,
-            assignee_id=ticket.assignee_id,
+            assignee=PersonResponse.from_user(assignee) if assignee else None,
             created_at=ticket.created_at,
             updated_at=ticket.updated_at,
             resolved_at=ticket.resolved_at,
@@ -99,17 +103,17 @@ class TicketResponse(BaseModel):
 class CommentResponse(BaseModel):
     id: UUID
     ticket_id: UUID
-    author_id: UUID
+    author: PersonResponse
     body: str
     visibility: Visibility
     created_at: datetime
 
     @classmethod
-    def from_comment(cls, comment: Comment) -> Self:
+    def from_comment(cls, comment: Comment, people: Mapping[UserId, User]) -> Self:
         return cls(
             id=comment.id,
             ticket_id=comment.ticket_id,
-            author_id=comment.author_id,
+            author=PersonResponse.from_user(people[comment.author_id]),
             body=str(comment.body),
             visibility=comment.visibility,
             created_at=comment.created_at,
@@ -151,7 +155,7 @@ async def list_tickets(
 ) -> TicketListResponse:
     page = await container.tickets().list_tickets(actor, params.to_query(actor))
     return TicketListResponse(
-        items=[TicketResponse.from_ticket(ticket) for ticket in page.tickets],
+        items=await _present_tickets(container, page.tickets),
         next_cursor=encode_cursor(params.sort, page.next_cursor) if page.next_cursor else None,
     )
 
@@ -170,7 +174,7 @@ async def open_ticket(
         priority=body.priority,
         idempotency_key=idempotency_key,
     )
-    return TicketResponse.from_ticket(ticket)
+    return await _present_ticket(container, ticket)
 
 
 @router.get("/{ticket_id}")
@@ -178,7 +182,7 @@ async def get_ticket(
     ticket_id: UUID, actor: CurrentActor, container: ContainerDep
 ) -> TicketResponse:
     ticket = await container.tickets().get_ticket(actor, TicketId(ticket_id))
-    return TicketResponse.from_ticket(ticket)
+    return await _present_ticket(container, ticket)
 
 
 @router.put("/{ticket_id}/status")
@@ -186,7 +190,7 @@ async def change_status(
     ticket_id: UUID, body: StatusChangeRequest, actor: CurrentActor, container: ContainerDep
 ) -> TicketResponse:
     ticket = await container.tickets().change_status(actor, TicketId(ticket_id), body.status)
-    return TicketResponse.from_ticket(ticket)
+    return await _present_ticket(container, ticket)
 
 
 @router.put("/{ticket_id}/priority")
@@ -194,7 +198,7 @@ async def change_priority(
     ticket_id: UUID, body: PriorityChangeRequest, actor: CurrentActor, container: ContainerDep
 ) -> TicketResponse:
     ticket = await container.tickets().change_priority(actor, TicketId(ticket_id), body.priority)
-    return TicketResponse.from_ticket(ticket)
+    return await _present_ticket(container, ticket)
 
 
 @router.put("/{ticket_id}/assignee")
@@ -202,19 +206,19 @@ async def assign(
     ticket_id: UUID, body: AssigneeChangeRequest, actor: CurrentActor, container: ContainerDep
 ) -> TicketResponse:
     ticket = await container.tickets().assign(actor, TicketId(ticket_id), UserId(body.assignee_id))
-    return TicketResponse.from_ticket(ticket)
+    return await _present_ticket(container, ticket)
 
 
 @router.delete("/{ticket_id}/assignee")
 async def unassign(ticket_id: UUID, actor: CurrentActor, container: ContainerDep) -> TicketResponse:
     ticket = await container.tickets().unassign(actor, TicketId(ticket_id))
-    return TicketResponse.from_ticket(ticket)
+    return await _present_ticket(container, ticket)
 
 
 @router.post("/{ticket_id}/take")
 async def take(ticket_id: UUID, actor: CurrentActor, container: ContainerDep) -> TicketResponse:
     ticket = await container.tickets().take(actor, TicketId(ticket_id))
-    return TicketResponse.from_ticket(ticket)
+    return await _present_ticket(container, ticket)
 
 
 @router.get("/{ticket_id}/comments")
@@ -222,7 +226,8 @@ async def list_comments(
     ticket_id: UUID, actor: CurrentActor, container: ContainerDep
 ) -> list[CommentResponse]:
     comments = await container.comments().list_comments(actor, TicketId(ticket_id))
-    return [CommentResponse.from_comment(comment) for comment in comments]
+    people = await container.people().find(comment.author_id for comment in comments)
+    return [CommentResponse.from_comment(comment, people) for comment in comments]
 
 
 @router.post("/{ticket_id}/comments", status_code=status.HTTP_201_CREATED)
@@ -232,7 +237,26 @@ async def add_comment(
     comment = await container.comments().add_comment(
         actor, TicketId(ticket_id), body=CommentBody(body.body), visibility=body.visibility
     )
-    return CommentResponse.from_comment(comment)
+    people = await container.people().find([comment.author_id])
+    return CommentResponse.from_comment(comment, people)
+
+
+async def _present_ticket(container: Container, ticket: Ticket) -> TicketResponse:
+    [presented] = await _present_tickets(container, [ticket])
+    return presented
+
+
+async def _present_tickets(container: Container, tickets: Sequence[Ticket]) -> list[TicketResponse]:
+    # One lookup for everyone on the page rather than one per ticket.
+    people = await container.people().find(_people_on(tickets))
+    return [TicketResponse.from_ticket(ticket, people) for ticket in tickets]
+
+
+def _people_on(tickets: Iterable[Ticket]) -> Iterable[UserId]:
+    for ticket in tickets:
+        yield ticket.requester_id
+        if ticket.assignee_id:
+            yield ticket.assignee_id
 
 
 def _assignee_filter(value: str | None, actor: Actor) -> UserId | Literal["unassigned"] | None:

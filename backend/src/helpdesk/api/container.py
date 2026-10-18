@@ -6,6 +6,7 @@ from helpdesk.application.ports import Clock, PasswordHasher, TokenCodec, UnitOf
 from helpdesk.application.tickets.comment_service import CommentService
 from helpdesk.application.tickets.ticket_service import TicketService
 from helpdesk.application.users.auth_service import AuthService
+from helpdesk.application.users.people import PeopleDirectory
 from helpdesk.application.users.user_service import UserService
 
 
@@ -37,3 +38,6 @@ class Container:
 
     def users(self) -> UserService:
         return UserService(self.uow_factory(), self.hasher, self.clock)
+
+    def people(self) -> PeopleDirectory:
+        return PeopleDirectory(self.uow_factory())

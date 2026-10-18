@@ -39,3 +39,14 @@ class UserResponse(BaseModel):
             is_active=user.is_active,
             created_at=user.created_at,
         )
+
+
+# Who someone is, as shown next to a ticket or comment: never their email or account state.
+class PersonResponse(BaseModel):
+    id: UUID
+    display_name: str
+    role: Role
+
+    @classmethod
+    def from_user(cls, user: User) -> Self:
+        return cls(id=user.id, display_name=str(user.display_name), role=user.role)

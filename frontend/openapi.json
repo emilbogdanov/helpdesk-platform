@@ -1729,10 +1729,8 @@
             "format": "uuid",
             "title": "Ticket Id"
           },
-          "author_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Author Id"
+          "author": {
+            "$ref": "#/components/schemas/PersonResponse"
           },
           "body": {
             "type": "string",
@@ -1751,7 +1749,7 @@
         "required": [
           "id",
           "ticket_id",
-          "author_id",
+          "author",
           "body",
           "visibility",
           "created_at"
@@ -1841,6 +1839,29 @@
           "description"
         ],
         "title": "OpenTicketRequest"
+      },
+      "PersonResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "role"
+        ],
+        "title": "PersonResponse"
       },
       "Priority": {
         "type": "string",
@@ -1959,10 +1980,8 @@
             "format": "uuid",
             "title": "Id"
           },
-          "requester_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Requester Id"
+          "requester": {
+            "$ref": "#/components/schemas/PersonResponse"
           },
           "subject": {
             "type": "string",
@@ -1978,17 +1997,15 @@
           "status": {
             "$ref": "#/components/schemas/TicketStatus"
           },
-          "assignee_id": {
+          "assignee": {
             "anyOf": [
               {
-                "type": "string",
-                "format": "uuid"
+                "$ref": "#/components/schemas/PersonResponse"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Assignee Id"
+            ]
           },
           "created_at": {
             "type": "string",
@@ -2052,12 +2069,12 @@
         "type": "object",
         "required": [
           "id",
-          "requester_id",
+          "requester",
           "subject",
           "description",
           "priority",
           "status",
-          "assignee_id",
+          "assignee",
           "created_at",
           "updated_at",
           "resolved_at",

@@ -195,6 +195,17 @@ class TestUsers:
             assert await uow.users.get(UserId(UUID(int=99))) is None
             assert await uow.users.get_by_email(EmailAddress("nobody@helpdesk.test")) is None
 
+    async def test_get_many_returns_the_known_ids_and_skips_the_rest(
+        self, uow: SqlUnitOfWork
+    ) -> None:
+        async with uow:
+            found = await uow.users.get_many([MILA, STEFAN, UserId(UUID(int=99))])
+
+        assert sorted(str(person.display_name) for person in found) == [
+            "Mila Georgieva",
+            "Stefan Kolev",
+        ]
+
     async def test_email_must_be_unique(self, uow: SqlUnitOfWork) -> None:
         duplicate = user(
             UserId(UUID(int=99)), email="mila@helpdesk.test", name="Mila Again", role=Role.AGENT

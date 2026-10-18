@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -129,6 +129,12 @@ class SqlUserRepository:
     async def get(self, user_id: UserId) -> User | None:
         return self._track(await self._session.get(UserRow, user_id))
 
+    async def get_many(self, user_ids: Collection[UserId]) -> list[User]:
+        if not user_ids:
+            return []
+        rows = await self._session.scalars(select(UserRow).where(UserRow.id.in_(user_ids)))
+        return [self._remember(row) for row in rows]
+
     async def get_by_email(self, email: EmailAddress) -> User | None:
         return self._track(
             await self._session.scalar(select(UserRow).where(UserRow.email == str(email)))
@@ -152,8 +158,9 @@ class SqlUserRepository:
             setattr(row, column, value)
 
     def _track(self, row: UserRow | None) -> User | None:
-        if row is None:
-            return None
+        return self._remember(row) if row is not None else None
+
+    def _remember(self, row: UserRow) -> User:
         self._loaded[UserId(row.id)] = row
         return _user_from_row(row)
 

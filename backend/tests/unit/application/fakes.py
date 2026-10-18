@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -129,6 +129,9 @@ class InMemoryUserRepository:
     async def get(self, user_id: UserId) -> User | None:
         user = self.rows.get(user_id)
         return deepcopy(user) if user is not None else None
+
+    async def get_many(self, user_ids: Collection[UserId]) -> list[User]:
+        return [deepcopy(self.rows[user_id]) for user_id in user_ids if user_id in self.rows]
 
     async def get_by_email(self, email: EmailAddress) -> User | None:
         for user in self.rows.values():

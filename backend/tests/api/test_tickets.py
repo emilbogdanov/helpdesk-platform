@@ -31,10 +31,14 @@ class TestOpenTicket:
 
         assert response.status_code == 201
         body = response.json()
-        assert body["requester_id"] == str(REQUESTER)
+        assert body["requester"] == {
+            "id": str(REQUESTER),
+            "display_name": "Petar Ivanov",
+            "role": "customer",
+        }
         assert body["status"] == "open"
         assert body["priority"] == "high"
-        assert body["assignee_id"] is None
+        assert body["assignee"] is None
 
     async def test_priority_defaults_to_normal(
         self, client: AsyncClient, as_customer: Headers
@@ -134,7 +138,7 @@ class TestWorkflow:
         )
         resolved = await client.put(f"{url}/status", json={"status": "resolved"}, headers=as_agent)
 
-        assert taken.json()["assignee_id"] == str(MILA)
+        assert taken.json()["assignee"]["display_name"] == "Mila Georgieva"
         assert started.json()["status"] == "in_progress"
         assert escalated.json()["priority"] == "urgent"
         assert resolved.json()["status"] == "resolved"
@@ -149,8 +153,12 @@ class TestWorkflow:
         assigned = await client.put(url, json={"assignee_id": str(STEFAN)}, headers=as_admin)
         released = await client.delete(url, headers=as_admin)
 
-        assert assigned.json()["assignee_id"] == str(STEFAN)
-        assert released.json()["assignee_id"] is None
+        assert assigned.json()["assignee"] == {
+            "id": str(STEFAN),
+            "display_name": "Stefan Kolev",
+            "role": "admin",
+        }
+        assert released.json()["assignee"] is None
 
     async def test_assigning_to_a_customer_is_rejected(
         self, client: AsyncClient, as_agent: Headers, uow: FakeUnitOfWork
@@ -271,6 +279,22 @@ class TestComments:
 
         assert [c["body"] for c in as_seen_by_customer.json()] == ["We're on it."]
         assert len(as_seen_by_agent.json()) == 2
+
+    async def test_the_requester_sees_who_replied(
+        self, client: AsyncClient, as_customer: Headers, as_agent: Headers, uow: FakeUnitOfWork
+    ) -> None:
+        await seed(uow, TicketStatus.WAITING_ON_CUSTOMER)
+        url = f"/tickets/{TICKET_ID}/comments"
+        await client.post(url, json={"body": "Can you send the invoice number?"}, headers=as_agent)
+        await client.post(url, json={"body": "It's INV-2026-0412."}, headers=as_customer)
+
+        thread = (await client.get(url, headers=as_customer)).json()
+
+        assert [(c["author"]["display_name"], c["author"]["role"]) for c in thread] == [
+            ("Mila Georgieva", "agent"),
+            ("Petar Ivanov", "customer"),
+        ]
+        assert set(thread[0]["author"]) == {"id", "display_name", "role"}
 
     async def test_customer_cannot_write_internal_notes(
         self, client: AsyncClient, as_customer: Headers, uow: FakeUnitOfWork

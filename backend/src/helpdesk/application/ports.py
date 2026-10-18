@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from types import TracebackType
@@ -51,6 +51,9 @@ class CommentRepository(Protocol):
 
 class UserRepository(Protocol):
     async def get(self, user_id: UserId) -> User | None: ...
+
+    # Unknown ids are left out rather than raising.
+    async def get_many(self, user_ids: Collection[UserId]) -> list[User]: ...
 
     async def get_by_email(self, email: EmailAddress) -> User | None: ...
 
