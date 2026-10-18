@@ -1,13 +1,22 @@
 from datetime import datetime
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from fastapi import APIRouter, Header, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Header, Query, status
+from pydantic import BaseModel, ConfigDict, Field
 
+from helpdesk.api.cursors import decode_cursor, encode_cursor
 from helpdesk.api.dependencies import ContainerDep, CurrentActor
 from helpdesk.api.errors import error_responses
 from helpdesk.api.schemas import Request
+from helpdesk.application.actor import Actor
+from helpdesk.application.tickets.queries import (
+    MAX_PAGE_SIZE,
+    UNASSIGNED,
+    TicketQuery,
+    TicketSort,
+)
+from helpdesk.domain.errors import InvalidValueError
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment, CommentBody, Visibility
 from helpdesk.domain.tickets.status import TicketStatus
@@ -102,6 +111,46 @@ class CommentResponse(BaseModel):
         )
 
 
+class TicketListResponse(BaseModel):
+    items: list[TicketResponse]
+    # Pass back as `cursor` for the next page; null on the last page.
+    next_cursor: str | None
+
+
+class TicketListParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: list[TicketStatus] = []
+    priority: list[Priority] = []
+    assignee: str | None = Field(None, description="`me`, `unassigned` or a user id")
+    requester: UUID | None = Field(None, description="Ignored for customers")
+    sort: TicketSort = TicketSort.NEWEST
+    limit: int = Field(25, ge=1, le=MAX_PAGE_SIZE)
+    cursor: str | None = Field(None, description="`next_cursor` from the previous page")
+
+    def to_query(self, actor: Actor) -> TicketQuery:
+        return TicketQuery(
+            statuses=frozenset(self.status),
+            priorities=frozenset(self.priority),
+            requester_id=UserId(self.requester) if self.requester else None,
+            assignee=_assignee_filter(self.assignee, actor),
+            sort=self.sort,
+            after=decode_cursor(self.sort, self.cursor) if self.cursor else None,
+            limit=self.limit,
+        )
+
+
+@router.get("")
+async def list_tickets(
+    params: Annotated[TicketListParams, Query()], actor: CurrentActor, container: ContainerDep
+) -> TicketListResponse:
+    page = await container.tickets().list_tickets(actor, params.to_query(actor))
+    return TicketListResponse(
+        items=[TicketResponse.from_ticket(ticket) for ticket in page.tickets],
+        next_cursor=encode_cursor(params.sort, page.next_cursor) if page.next_cursor else None,
+    )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def open_ticket(
     body: OpenTicketRequest,
@@ -179,3 +228,16 @@ async def add_comment(
         actor, TicketId(ticket_id), body=CommentBody(body.body), visibility=body.visibility
     )
     return CommentResponse.from_comment(comment)
+
+
+def _assignee_filter(value: str | None, actor: Actor) -> UserId | Literal["unassigned"] | None:
+    if value is None:
+        return None
+    if value == "me":
+        return actor.user_id
+    if value == UNASSIGNED:
+        return UNASSIGNED
+    try:
+        return UserId(UUID(value))
+    except ValueError as error:
+        raise InvalidValueError("assignee must be 'me', 'unassigned' or a user id") from error
