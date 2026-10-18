@@ -95,6 +95,12 @@ class TicketRow(Base):
             "status NOT IN ('in_progress', 'waiting_on_customer') OR assignee_id IS NOT NULL",
             name="worked_ticket_has_assignee",
         ),
+        # One index per list view; each ends in id because the cursor sorts by it last.
+        Index("ix_tickets_created_at_id", "created_at", "id"),
+        Index("ix_tickets_updated_at_id", "updated_at", "id"),
+        Index("ix_tickets_requester_id_created_at_id", "requester_id", "created_at", "id"),
+        Index("ix_tickets_status_created_at_id", "status", "created_at", "id"),
+        Index("ix_tickets_assignee_id_updated_at_id", "assignee_id", "updated_at", "id"),
     )
 
 

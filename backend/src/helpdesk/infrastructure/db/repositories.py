@@ -1,6 +1,6 @@
 from typing import Any
 
-from sqlalchemy import literal, select, tuple_
+from sqlalchemy import Select, literal, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,32 +61,7 @@ class SqlTicketRepository:
             setattr(row, column, value)
 
     async def find(self, query: TicketQuery) -> list[Ticket]:
-        sort_column = TicketRow.updated_at if query.sort.by_update else TicketRow.created_at
-        statement = select(TicketRow)
-        if query.statuses:
-            statement = statement.where(TicketRow.status.in_(query.statuses))
-        if query.priorities:
-            statement = statement.where(TicketRow.priority.in_(query.priorities))
-        if query.requester_id is not None:
-            statement = statement.where(TicketRow.requester_id == query.requester_id)
-        if query.assignee == UNASSIGNED:
-            statement = statement.where(TicketRow.assignee_id.is_(None))
-        elif query.assignee is not None:
-            statement = statement.where(TicketRow.assignee_id == query.assignee)
-        if query.after is not None:
-            # Row-value comparison, so Postgres can seek straight to the cursor in an index
-            # on (sort column, id) instead of scanning everything before it.
-            position = tuple_(sort_column, TicketRow.id)
-            cursor = tuple_(literal(query.after.sort_value), literal(query.after.ticket_id))
-            statement = statement.where(
-                position < cursor if query.sort.descending else position > cursor
-            )
-        order = [sort_column, TicketRow.id]
-        rows = await self._session.scalars(
-            statement.order_by(
-                *(column.desc() if query.sort.descending else column for column in order)
-            ).limit(query.limit)
-        )
+        rows = await self._session.scalars(ticket_search(query))
         return [_ticket_from_row(row) for row in rows]
 
     def _track(self, row: TicketRow | None) -> Ticket | None:
@@ -162,6 +137,33 @@ class SqlUserRepository:
             return None
         self._loaded[UserId(row.id)] = row
         return _user_from_row(row)
+
+
+def ticket_search(query: TicketQuery) -> Select[TicketRow]:
+    sort_column = TicketRow.updated_at if query.sort.by_update else TicketRow.created_at
+    statement = select(TicketRow)
+    if query.statuses:
+        statement = statement.where(TicketRow.status.in_(query.statuses))
+    if query.priorities:
+        statement = statement.where(TicketRow.priority.in_(query.priorities))
+    if query.requester_id is not None:
+        statement = statement.where(TicketRow.requester_id == query.requester_id)
+    if query.assignee == UNASSIGNED:
+        statement = statement.where(TicketRow.assignee_id.is_(None))
+    elif query.assignee is not None:
+        statement = statement.where(TicketRow.assignee_id == query.assignee)
+    if query.after is not None:
+        # Row-value comparison, so Postgres can seek straight to the cursor in an index on
+        # (sort column, id) instead of reading everything before it.
+        position = tuple_(sort_column, TicketRow.id)
+        cursor = tuple_(literal(query.after.sort_value), literal(query.after.ticket_id))
+        statement = statement.where(
+            position < cursor if query.sort.descending else position > cursor
+        )
+    order = (sort_column, TicketRow.id)
+    return statement.order_by(
+        *(column.desc() if query.sort.descending else column for column in order)
+    ).limit(query.limit)
 
 
 def _ticket_columns(ticket: Ticket) -> dict[str, Any]:
