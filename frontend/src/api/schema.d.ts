@@ -271,7 +271,7 @@ export interface components {
             /** Body */
             body: string;
             /** @default public */
-            visibility: components["schemas"]["Visibility"];
+            visibility?: components["schemas"]["Visibility"];
         };
         /** AssigneeChangeRequest */
         AssigneeChangeRequest: {
@@ -331,7 +331,7 @@ export interface components {
             /** Description */
             description: string;
             /** @default normal */
-            priority: components["schemas"]["Priority"];
+            priority?: components["schemas"]["Priority"];
         };
         /** PersonResponse */
         PersonResponse: {
@@ -442,7 +442,7 @@ export interface components {
              * @default bearer
              * @constant
              */
-            token_type: "bearer";
+            token_type?: "bearer";
             /**
              * Expires At
              * Format: date-time
