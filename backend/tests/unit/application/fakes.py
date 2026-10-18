@@ -1,7 +1,9 @@
+from collections import Counter
 from collections.abc import Collection, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from statistics import median
 from types import TracebackType
 from typing import Self
 from uuid import UUID
@@ -13,6 +15,7 @@ from helpdesk.application.errors import (
 )
 from helpdesk.application.ports import TokenClaims
 from helpdesk.application.tickets.queries import UNASSIGNED, TicketQuery
+from helpdesk.application.tickets.totals import TicketTotals
 from helpdesk.application.users.queries import UserQuery
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment, Visibility
@@ -102,6 +105,35 @@ class InMemoryTicketRepository:
             key=lambda ticket: ticket.resolved_at or cutoff,
         )
         return [ticket.id for ticket in resolved[:limit]]
+
+    async def totals(self, *, since: datetime) -> TicketTotals:
+        tickets = list(self.rows.values())
+        active = [ticket for ticket in tickets if ticket.status in _ACTIVE]
+        awaiting = [ticket for ticket in active if ticket.first_responded_at is None]
+        response_seconds = [
+            (ticket.first_responded_at - ticket.created_at).total_seconds()
+            for ticket in tickets
+            if ticket.first_responded_at is not None and ticket.created_at >= since
+        ]
+        return TicketTotals(
+            by_status=Counter(ticket.status for ticket in tickets),
+            unassigned=sum(ticket.assignee_id is None for ticket in active),
+            awaiting_first_response=len(awaiting),
+            first_response_overdue=sum(ticket.sla_breached_at is not None for ticket in awaiting),
+            median_first_response=(
+                timedelta(seconds=median(response_seconds)) if response_seconds else None
+            ),
+            opened_by_day=Counter(
+                ticket.created_at.astimezone(UTC).date()
+                for ticket in tickets
+                if ticket.created_at >= since
+            ),
+            resolved_by_day=Counter(
+                ticket.resolved_at.astimezone(UTC).date()
+                for ticket in tickets
+                if ticket.resolved_at is not None and ticket.resolved_at >= since
+            ),
+        )
 
 
 class InMemoryCommentRepository:
@@ -258,6 +290,9 @@ def _beyond(
     query: TicketQuery, position: tuple[datetime, UUID], cursor: tuple[datetime, UUID]
 ) -> bool:
     return position < cursor if query.sort.descending else position > cursor
+
+
+_ACTIVE = {TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_ON_CUSTOMER}
 
 
 def _matches(ticket: Ticket, query: TicketQuery) -> bool:

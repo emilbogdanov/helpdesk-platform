@@ -5,6 +5,7 @@ from types import TracebackType
 from typing import Protocol, Self
 
 from helpdesk.application.tickets.queries import TicketQuery
+from helpdesk.application.tickets.totals import TicketTotals
 from helpdesk.application.users.queries import UserQuery
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment
@@ -39,6 +40,9 @@ class TicketRepository(Protocol):
     ) -> list[TicketId]: ...
 
     async def find_resolved_before(self, cutoff: datetime, *, limit: int) -> list[TicketId]: ...
+
+    # Counts for the admin dashboard; `since` bounds the per-day counts and the median.
+    async def totals(self, *, since: datetime) -> TicketTotals: ...
 
 
 class CommentRepository(Protocol):

@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from helpdesk.application.ports import Clock, PasswordHasher, TokenCodec, UnitOfWork
 from helpdesk.application.tickets.comment_service import CommentService
+from helpdesk.application.tickets.statistics import TicketStatistics
 from helpdesk.application.tickets.ticket_service import TicketService
 from helpdesk.application.users.auth_service import AuthService
 from helpdesk.application.users.people import PeopleDirectory
@@ -41,3 +42,6 @@ class Container:
 
     def people(self) -> PeopleDirectory:
         return PeopleDirectory(self.uow_factory())
+
+    def statistics(self) -> TicketStatistics:
+        return TicketStatistics(self.uow_factory(), self.clock)

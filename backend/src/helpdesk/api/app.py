@@ -7,7 +7,7 @@ from starlette.types import Lifespan
 
 from helpdesk.api.container import Container
 from helpdesk.api.errors import register_error_handlers
-from helpdesk.api.routes import auth, tickets, users
+from helpdesk.api.routes import auth, stats, tickets, users
 
 
 def create_app(container: Container) -> FastAPI:
@@ -30,7 +30,7 @@ def openapi_schema() -> dict[str, Any]:
 def _routed_app(lifespan: Lifespan[FastAPI] | None = None) -> FastAPI:
     app = FastAPI(title="Helpdesk", version="0.1.0", lifespan=lifespan)
     register_error_handlers(app)
-    for router in (auth.router, tickets.router, users.router):
+    for router in (auth.router, tickets.router, users.router, stats.router):
         app.include_router(router)
 
     # Liveness only: answers as long as the process serves requests. It deliberately doesn't

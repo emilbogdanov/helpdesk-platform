@@ -1,14 +1,16 @@
 from collections.abc import Collection, Mapping
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Select, and_, func, literal, or_, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from helpdesk.application.errors import EmailTakenError, IdempotencyKeyConflictError
 from helpdesk.application.tickets.queries import UNASSIGNED, TicketQuery
+from helpdesk.application.tickets.totals import TicketTotals
 from helpdesk.application.users.queries import UserQuery
 from helpdesk.domain.ids import CommentId, TicketId, UserId
 from helpdesk.domain.roles import Role
@@ -84,6 +86,57 @@ class SqlTicketRepository:
     async def find_resolved_before(self, cutoff: datetime, *, limit: int) -> list[TicketId]:
         ids = await self._session.scalars(resolved_before(cutoff, limit=limit))
         return [TicketId(ticket_id) for ticket_id in ids]
+
+    async def totals(self, *, since: datetime) -> TicketTotals:
+        by_status = await self._session.execute(
+            select(TicketRow.status, func.count()).group_by(TicketRow.status)
+        )
+        active = TicketRow.status.in_(ACTIVE_STATUSES)
+        awaiting = and_(active, TicketRow.first_responded_at.is_(None))
+        response_seconds = func.extract(
+            "epoch", TicketRow.first_responded_at - TicketRow.created_at
+        )
+        # One scan for all four figures; FILTER picks the rows each one counts.
+        counts = (
+            await self._session.execute(
+                select(
+                    func.count().filter(and_(active, TicketRow.assignee_id.is_(None))),
+                    func.count().filter(awaiting),
+                    func.count().filter(and_(awaiting, TicketRow.sla_breached_at.is_not(None))),
+                    func.percentile_cont(0.5)
+                    .within_group(response_seconds)
+                    .filter(
+                        and_(
+                            TicketRow.created_at >= since,
+                            TicketRow.first_responded_at.is_not(None),
+                        )
+                    ),
+                )
+            )
+        ).one()
+        unassigned, awaiting_count, overdue, median_seconds = counts
+        return TicketTotals(
+            by_status={TicketStatus(status): count for status, count in by_status.all()},
+            unassigned=unassigned,
+            awaiting_first_response=awaiting_count,
+            first_response_overdue=overdue,
+            median_first_response=(
+                timedelta(seconds=float(median_seconds)) if median_seconds is not None else None
+            ),
+            opened_by_day=await self._count_by_day(TicketRow.created_at, since),
+            resolved_by_day=await self._count_by_day(TicketRow.resolved_at, since),
+        )
+
+    async def _count_by_day(
+        self,
+        column: InstrumentedAttribute[datetime] | InstrumentedAttribute[datetime | None],
+        since: datetime,
+    ) -> dict[date, int]:
+        day = func.date(func.timezone("UTC", column))
+        rows = await self._session.execute(
+            select(day, func.count()).where(column >= since).group_by(day)
+        )
+        return dict(rows.all())
 
     def _track(self, row: TicketRow | None) -> Ticket | None:
         if row is None:
@@ -177,6 +230,9 @@ class SqlUserRepository:
     def _remember(self, row: UserRow) -> User:
         self._loaded[UserId(row.id)] = row
         return _user_from_row(row)
+
+
+ACTIVE_STATUSES = (TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_ON_CUSTOMER)
 
 
 def ticket_search(query: TicketQuery) -> Select[TicketRow]:

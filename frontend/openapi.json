@@ -1921,6 +1921,78 @@
           }
         }
       }
+    },
+    "/stats/tickets": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "Ticket Stats",
+        "operationId": "ticket_stats_stats_tickets_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "description": "How many days back to chart",
+              "default": 14,
+              "title": "Days"
+            },
+            "description": "How many days back to chart"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketStatsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2024,6 +2096,30 @@
           "password"
         ],
         "title": "CreateUserRequest"
+      },
+      "DayCountResponse": {
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date",
+            "title": "Day"
+          },
+          "opened": {
+            "type": "integer",
+            "title": "Opened"
+          },
+          "resolved": {
+            "type": "integer",
+            "title": "Resolved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "day",
+          "opened",
+          "resolved"
+        ],
+        "title": "DayCountResponse"
       },
       "ErrorResponse": {
         "properties": {
@@ -2333,6 +2429,60 @@
           "recently_updated"
         ],
         "title": "TicketSort"
+      },
+      "TicketStatsResponse": {
+        "properties": {
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/TicketStatus"
+            },
+            "type": "object",
+            "title": "By Status"
+          },
+          "unassigned": {
+            "type": "integer",
+            "title": "Unassigned"
+          },
+          "awaiting_first_response": {
+            "type": "integer",
+            "title": "Awaiting First Response"
+          },
+          "first_response_overdue": {
+            "type": "integer",
+            "title": "First Response Overdue"
+          },
+          "median_first_response_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median First Response Seconds"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DayCountResponse"
+            },
+            "type": "array",
+            "title": "Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "by_status",
+          "unassigned",
+          "awaiting_first_response",
+          "first_response_overdue",
+          "median_first_response_seconds",
+          "days"
+        ],
+        "title": "TicketStatsResponse"
       },
       "TicketStatus": {
         "type": "string",
