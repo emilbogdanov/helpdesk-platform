@@ -9,13 +9,16 @@ dependencies = [
     "alembic>=1.20",
     "argon2-cffi>=25.1",
     "asyncpg>=0.32",
+    "fastapi>=0.143",
     "pydantic-settings>=2.16",
     "pyjwt>=2.15",
     "sqlalchemy[asyncio]>=2.1",
+    "uvicorn>=0.54",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28",
     "mypy>=2.4",
     "pre-commit>=4.7",
     "pytest>=9.1",
