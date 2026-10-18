@@ -1,6 +1,7 @@
 name: helpdesk
 
-# One image runs as three services: migrate once, then the API and the worker.
+# The backend image runs as three services: migrate once, then the API and the worker. The
+# web service serves the frontend and passes /api through to the API.
 x-backend: &backend
   build: ./backend
   image: helpdesk-backend
@@ -74,6 +75,21 @@ services:
         condition: service_healthy
     # Time to finish the pass in progress after SIGTERM.
     stop_grace_period: 30s
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    image: helpdesk-web
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
 volumes:
