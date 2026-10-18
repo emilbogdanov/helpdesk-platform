@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from uuid import uuid4
 
@@ -10,6 +11,13 @@ from helpdesk.application.errors import (
 )
 from helpdesk.application.ports import Clock, UnitOfWork
 from helpdesk.application.tickets.access import load_visible_ticket, require_staff
+from helpdesk.application.tickets.queries import (
+    MAX_PAGE_SIZE,
+    TicketCursor,
+    TicketPage,
+    TicketQuery,
+)
+from helpdesk.domain.errors import InvalidValueError
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.ticket import Ticket
@@ -70,6 +78,22 @@ class TicketService:
             await uow.audit.record(actor.user_id, ticket.pull_events())
             await uow.commit()
         return ticket
+
+    async def list_tickets(self, actor: Actor, query: TicketQuery) -> TicketPage:
+        if not 1 <= query.limit <= MAX_PAGE_SIZE:
+            raise InvalidValueError(f"page size must be 1 to {MAX_PAGE_SIZE}")
+        if not actor.role.is_staff:
+            # Customers only ever see their own tickets, whatever they ask for.
+            query = replace(query, requester_id=actor.user_id)
+        async with self._uow as uow:
+            # One extra row says whether another page exists without a COUNT query.
+            found = await uow.tickets.find(replace(query, limit=query.limit + 1))
+        tickets, has_more = found[: query.limit], len(found) > query.limit
+        last = tickets[-1] if has_more else None
+        return TicketPage(
+            tickets=tickets,
+            next_cursor=TicketCursor(query.sort.key_of(last), last.id) if last else None,
+        )
 
     async def get_ticket(self, actor: Actor, ticket_id: TicketId) -> Ticket:
         async with self._uow as uow:

@@ -4,6 +4,7 @@ from datetime import datetime
 from types import TracebackType
 from typing import Protocol, Self
 
+from helpdesk.application.tickets.queries import TicketQuery
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment
 from helpdesk.domain.tickets.events import TicketEvent
@@ -25,6 +26,9 @@ class TicketRepository(Protocol):
     async def add(self, ticket: Ticket, *, idempotency_key: str | None) -> None: ...
 
     async def update(self, ticket: Ticket) -> None: ...
+
+    # At most query.limit tickets in the query's sort order, starting after query.after.
+    async def find(self, query: TicketQuery) -> list[Ticket]: ...
 
 
 class CommentRepository(Protocol):

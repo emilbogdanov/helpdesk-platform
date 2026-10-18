@@ -12,6 +12,7 @@ from helpdesk.application.errors import (
     InvalidTokenError,
 )
 from helpdesk.application.ports import TokenClaims
+from helpdesk.application.tickets.queries import UNASSIGNED, TicketQuery
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment, Visibility
 from helpdesk.domain.tickets.events import TicketEvent
@@ -57,6 +58,17 @@ class InMemoryTicketRepository:
     async def update(self, ticket: Ticket) -> None:
         assert ticket.id in self.rows, f"ticket {ticket.id} updated before it was added"
         self.rows[ticket.id] = _stored(ticket)
+
+    async def find(self, query: TicketQuery) -> list[Ticket]:
+        matching = [ticket for ticket in self.rows.values() if _matches(ticket, query)]
+        matching.sort(
+            key=lambda ticket: (query.sort.key_of(ticket), ticket.id),
+            reverse=query.sort.descending,
+        )
+        if query.after is not None:
+            cursor = (query.after.sort_value, query.after.ticket_id)
+            matching = [t for t in matching if _beyond(query, (query.sort.key_of(t), t.id), cursor)]
+        return [deepcopy(ticket) for ticket in matching[: query.limit]]
 
 
 class InMemoryCommentRepository:
@@ -182,6 +194,24 @@ class FakeUnitOfWork:
     async def commit(self) -> None:
         self.commits += 1
         self._committed_in_block = True
+
+
+def _beyond(
+    query: TicketQuery, position: tuple[datetime, UUID], cursor: tuple[datetime, UUID]
+) -> bool:
+    return position < cursor if query.sort.descending else position > cursor
+
+
+def _matches(ticket: Ticket, query: TicketQuery) -> bool:
+    if query.statuses and ticket.status not in query.statuses:
+        return False
+    if query.priorities and ticket.priority not in query.priorities:
+        return False
+    if query.requester_id is not None and ticket.requester_id != query.requester_id:
+        return False
+    if query.assignee == UNASSIGNED:
+        return ticket.assignee_id is None
+    return query.assignee is None or ticket.assignee_id == query.assignee
 
 
 def _stored(ticket: Ticket) -> Ticket:
