@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from helpdesk.domain.errors import InvalidValueError
+from helpdesk.domain.text import ensure_text
 
 SUBJECT_MAX_LENGTH = 200
 DESCRIPTION_MAX_LENGTH = 10_000
@@ -19,10 +20,7 @@ class Subject:
     value: str
 
     def __post_init__(self) -> None:
-        if not self.value.strip():
-            raise InvalidValueError("subject must not be blank")
-        if len(self.value) > SUBJECT_MAX_LENGTH:
-            raise InvalidValueError(f"subject must be at most {SUBJECT_MAX_LENGTH} characters")
+        ensure_text(self.value, field="subject", max_length=SUBJECT_MAX_LENGTH)
         # Subjects are rendered as one row in the agent queue.
         if "\n" in self.value or "\r" in self.value:
             raise InvalidValueError("subject must be a single line")
@@ -36,12 +34,7 @@ class Description:
     value: str
 
     def __post_init__(self) -> None:
-        if not self.value.strip():
-            raise InvalidValueError("description must not be blank")
-        if len(self.value) > DESCRIPTION_MAX_LENGTH:
-            raise InvalidValueError(
-                f"description must be at most {DESCRIPTION_MAX_LENGTH} characters"
-            )
+        ensure_text(self.value, field="description", max_length=DESCRIPTION_MAX_LENGTH)
 
     def __str__(self) -> str:
         return self.value
