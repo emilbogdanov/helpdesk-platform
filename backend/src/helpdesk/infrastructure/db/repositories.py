@@ -179,6 +179,7 @@ def _ticket_columns(ticket: Ticket) -> dict[str, Any]:
         "updated_at": ticket.updated_at,
         "resolved_at": ticket.resolved_at,
         "closed_at": ticket.closed_at,
+        "first_responded_at": ticket.first_responded_at,
     }
 
 
@@ -195,6 +196,7 @@ def _ticket_from_row(row: TicketRow) -> Ticket:
         updated_at=row.updated_at,
         resolved_at=row.resolved_at,
         closed_at=row.closed_at,
+        first_responded_at=row.first_responded_at,
     )
 
 

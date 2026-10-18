@@ -53,6 +53,7 @@ class Ticket:
         updated_at: datetime,
         resolved_at: datetime | None,
         closed_at: datetime | None,
+        first_responded_at: datetime | None,
     ) -> None:
         if status.requires_assignee and assignee_id is None:
             raise AssigneeRequiredError(status)
@@ -67,6 +68,7 @@ class Ticket:
         self._updated_at = updated_at
         self._resolved_at = resolved_at
         self._closed_at = closed_at
+        self._first_responded_at = first_responded_at
         self._events: list[TicketEvent] = []
 
     @classmethod
@@ -92,6 +94,7 @@ class Ticket:
             updated_at=at,
             resolved_at=None,
             closed_at=None,
+            first_responded_at=None,
         )
         ticket._events.append(
             TicketOpened(
@@ -146,6 +149,12 @@ class Ticket:
     @property
     def closed_at(self) -> datetime | None:
         return self._closed_at
+
+    # When staff first replied where the requester can see it. Internal notes don't count:
+    # the customer is still waiting to hear from someone.
+    @property
+    def first_responded_at(self) -> datetime | None:
+        return self._first_responded_at
 
     def change_status(self, target: TicketStatus, *, at: datetime) -> None:
         self._ensure_not_closed()
@@ -209,6 +218,12 @@ class Ticket:
             created_at=at,
         )
         self._updated_at = at
+        if (
+            author_role.is_staff
+            and visibility is Visibility.PUBLIC
+            and self._first_responded_at is None
+        ):
+            self._first_responded_at = at
         self._events.append(
             CommentAdded(
                 ticket_id=self._id,

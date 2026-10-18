@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import UUID
 
 import pytest
@@ -219,3 +220,44 @@ class TestRequesterReply:
         )
 
         assert ticket.status is TicketStatus.WAITING_ON_CUSTOMER
+
+
+class TestFirstResponse:
+    def test_first_public_staff_reply_is_the_first_response(self) -> None:
+        ticket = ticket_in(TicketStatus.IN_PROGRESS)
+
+        comment_on(ticket, author_id=MILA, author_role=Role.AGENT)
+
+        assert ticket.first_responded_at == LATER
+
+    def test_later_replies_do_not_move_it(self) -> None:
+        ticket = ticket_in(TicketStatus.IN_PROGRESS)
+        comment_on(ticket, author_id=MILA, author_role=Role.AGENT)
+
+        ticket.add_comment(
+            comment_id=CommentId(UUID(int=2)),
+            author_id=MILA,
+            author_role=Role.AGENT,
+            body=CommentBody("Following up."),
+            visibility=Visibility.PUBLIC,
+            at=LATER + timedelta(hours=1),
+        )
+
+        assert ticket.first_responded_at == LATER
+
+    @pytest.mark.parametrize(
+        ("author_id", "role", "visibility"),
+        [
+            (MILA, Role.AGENT, Visibility.INTERNAL),
+            (REQUESTER, Role.CUSTOMER, Visibility.PUBLIC),
+        ],
+        ids=["internal-note", "requester-comment"],
+    )
+    def test_customer_still_waiting_after(
+        self, author_id: UserId, role: Role, visibility: Visibility
+    ) -> None:
+        ticket = ticket_in(TicketStatus.IN_PROGRESS)
+
+        comment_on(ticket, author_id=author_id, author_role=role, visibility=visibility)
+
+        assert ticket.first_responded_at is None

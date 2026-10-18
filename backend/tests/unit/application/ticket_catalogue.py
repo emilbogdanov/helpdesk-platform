@@ -41,6 +41,7 @@ def catalogue_ticket(
         updated_at=OPENED_AT + timedelta(minutes=updated_minutes_in or opened_minutes_in),
         resolved_at=None,
         closed_at=None,
+        first_responded_at=None,
     )
 
 

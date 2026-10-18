@@ -43,6 +43,7 @@ def state_of(ticket: Ticket) -> dict[str, object]:
         "updated_at": ticket.updated_at,
         "resolved_at": ticket.resolved_at,
         "closed_at": ticket.closed_at,
+        "first_responded_at": ticket.first_responded_at,
     }
 
 

@@ -83,6 +83,7 @@ class TicketRow(Base):
     updated_at: Mapped[datetime]
     resolved_at: Mapped[datetime | None]
     closed_at: Mapped[datetime | None]
+    first_responded_at: Mapped[datetime | None]
     idempotency_key: Mapped[str | None] = mapped_column(String(255))
     # Optimistic locking: an UPDATE only matches the version that was read, so two agents
     # editing the same ticket can't silently overwrite each other.
