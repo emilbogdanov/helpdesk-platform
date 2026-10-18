@@ -1,0 +1,16 @@
+# Local secrets must never end up in an image layer.
+.env
+.env.*
+!.env.example
+
+.venv
+**/__pycache__
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+
+tests
+Dockerfile
+.dockerignore
