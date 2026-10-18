@@ -36,6 +36,9 @@ export interface SeededTicket {
   description?: string;
   createdAt?: string;
   updatedAt?: string;
+  firstRespondedAt?: string;
+  resolvedAt?: string;
+  breachedAt?: string;
 }
 
 // Just enough of the backend for the frontend's tests: real status codes and error codes,
@@ -87,10 +90,10 @@ export class FakeHelpdesk {
       assignee: seed.assignee ? personFrom(seed.assignee.user) : null,
       created_at: createdAt,
       updated_at: seed.updatedAt ?? createdAt,
-      resolved_at: null,
+      resolved_at: seed.resolvedAt ?? null,
       closed_at: null,
-      first_responded_at: null,
-      sla_breached_at: null,
+      first_responded_at: seed.firstRespondedAt ?? null,
+      sla_breached_at: seed.breachedAt ?? null,
     };
     this.tickets.push(ticket);
     this.comments.set(ticket.id, []);
@@ -420,6 +423,18 @@ export class FakeHelpdesk {
           user.is_active = true;
         }),
       ),
+
+      http.get("/api/stats/tickets", ({ request }) => {
+        const user = this.#authenticate(request);
+        if (!user) {
+          return refuse(401, "invalid_token", "token is invalid");
+        }
+        if (user.role !== "admin") {
+          return refuse(403, "admin_only", "only admins can see ticket statistics");
+        }
+        const days = Number(new URL(request.url).searchParams.get("days") ?? 14);
+        return HttpResponse.json(this.#statistics(days));
+      }),
     ];
   }
 
@@ -441,6 +456,57 @@ export class FakeHelpdesk {
     }
     change(account.user);
     return HttpResponse.json(account.user);
+  }
+
+  #statistics(days: number): Schemas["TicketStatsResponse"] {
+    const active = this.tickets.filter(
+      (ticket) => WORKED.includes(ticket.status) || ticket.status === "open",
+    );
+    const awaiting = active.filter((ticket) => ticket.first_responded_at === null);
+    const today = new Date();
+    const window = Array.from({ length: days }, (_, index) => {
+      const day = new Date(today);
+      day.setUTCDate(today.getUTCDate() - (days - 1 - index));
+      return day.toISOString().slice(0, 10);
+    });
+    const firstDay = window[0] ?? "";
+    const replySeconds = this.tickets
+      .filter(
+        (ticket) =>
+          ticket.first_responded_at !== null && ticket.created_at.slice(0, 10) >= firstDay,
+      )
+      .map(
+        (ticket) =>
+          (Date.parse(ticket.first_responded_at ?? "") - Date.parse(ticket.created_at)) / 1000,
+      )
+      .sort((a, b) => a - b);
+    const middle = Math.floor(replySeconds.length / 2);
+    const median =
+      replySeconds.length === 0
+        ? null
+        : replySeconds.length % 2
+          ? (replySeconds[middle] ?? null)
+          : ((replySeconds[middle - 1] ?? 0) + (replySeconds[middle] ?? 0)) / 2;
+    const count = (status: TicketStatus) =>
+      this.tickets.filter((ticket) => ticket.status === status).length;
+    return {
+      by_status: {
+        open: count("open"),
+        in_progress: count("in_progress"),
+        waiting_on_customer: count("waiting_on_customer"),
+        resolved: count("resolved"),
+        closed: count("closed"),
+      },
+      unassigned: active.filter((ticket) => ticket.assignee === null).length,
+      awaiting_first_response: awaiting.length,
+      first_response_overdue: awaiting.filter((ticket) => ticket.sla_breached_at !== null).length,
+      median_first_response_seconds: median,
+      days: window.map((day) => ({
+        day,
+        opened: this.tickets.filter((ticket) => ticket.created_at.startsWith(day)).length,
+        resolved: this.tickets.filter((ticket) => ticket.resolved_at?.startsWith(day)).length,
+      })),
+    };
   }
 
   #visibleTicket(

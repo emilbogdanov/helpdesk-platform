@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatRelative } from "@/lib/format";
+import { formatDuration, formatRelative } from "@/lib/format";
 
 const NOW = new Date("2026-10-18T14:00:00Z");
 
@@ -15,5 +15,18 @@ describe("formatRelative", () => {
     ["2026-10-18T14:59:58Z", "in 1 hour"],
   ])("describes %s as %s", (iso, expected) => {
     expect(formatRelative(iso, NOW)).toBe(expected);
+  });
+});
+
+describe("formatDuration", () => {
+  it.each([
+    [20, "1 min"],
+    [45 * 60, "45 min"],
+    [3600, "1 h"],
+    [80 * 60, "1 h 20 min"],
+    [27 * 3600, "1 d 3 h"],
+    [48 * 3600, "2 d"],
+  ])("reads %i seconds as %s", (seconds, expected) => {
+    expect(formatDuration(seconds)).toBe(expected);
   });
 });

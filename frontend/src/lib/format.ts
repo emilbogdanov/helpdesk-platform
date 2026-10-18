@@ -20,6 +20,22 @@ export function formatDate(iso: string): string {
   return dateOnly.format(new Date(iso));
 }
 
+// A span of time the way people say it: "45 min", "1 h 20 min", "2 d 3 h".
+export function formatDuration(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) {
+    return `${String(Math.max(minutes, 1))} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest ? `${String(hours)} h ${String(rest)} min` : `${String(hours)} h`;
+  }
+  const days = Math.floor(hours / 24);
+  const rest = hours % 24;
+  return rest ? `${String(days)} d ${String(rest)} h` : `${String(days)} d`;
+}
+
 // "3 hours ago", "in 1 hour", "yesterday"; anything under a minute is "just now". Rounded
 // to whole minutes first, so 59 minutes 58 seconds reads as "in 1 hour".
 export function formatRelative(iso: string, now: Date = new Date()): string {

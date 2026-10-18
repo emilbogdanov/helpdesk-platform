@@ -3,6 +3,7 @@ import { Navigate, type RouteObject } from "react-router";
 import { NotFoundPage } from "@/app/NotFoundPage";
 import { RouteError } from "@/app/RouteError";
 import { AccountPage } from "@/features/account/AccountPage";
+import { DashboardPage } from "@/features/admin/DashboardPage";
 import { PeoplePage } from "@/features/admin/PeoplePage";
 import { AuthLayout } from "@/features/auth/AuthLayout";
 import { RequireAdmin } from "@/features/auth/RequireAdmin";
@@ -39,7 +40,10 @@ export const routes: RouteObject[] = [
               {
                 path: "admin",
                 element: <RequireAdmin />,
-                children: [{ path: "people", element: <PeoplePage /> }],
+                children: [
+                  { index: true, element: <DashboardPage /> },
+                  { path: "people", element: <PeoplePage /> },
+                ],
               },
               { path: "*", element: <NotFoundPage /> },
             ],

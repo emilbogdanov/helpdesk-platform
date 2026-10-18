@@ -49,9 +49,14 @@ export function AppShell() {
                 {user.role === "customer" ? "Tickets" : "Queue"}
               </NavLink>
               {user.role === "admin" && (
-                <NavLink to="/admin/people" className={styles.navLink}>
-                  People
-                </NavLink>
+                <>
+                  <NavLink to="/admin" end className={styles.navLink}>
+                    Dashboard
+                  </NavLink>
+                  <NavLink to="/admin/people" className={styles.navLink}>
+                    People
+                  </NavLink>
+                </>
               )}
             </nav>
           </div>

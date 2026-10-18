@@ -29,6 +29,11 @@
   --color-success: light-dark(#2b7a30, #64be69);
   --color-success-subtle: light-dark(#e9f4e9, #15281a);
 
+  /* Chart series, validated as a pair for colour-vision deficiency in both themes. Data
+     colours only: never text, never status. */
+  --color-chart-opened: light-dark(#2a78d6, #3987e5);
+  --color-chart-resolved: light-dark(#eb6834, #d95926);
+
   --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, monospace;
 

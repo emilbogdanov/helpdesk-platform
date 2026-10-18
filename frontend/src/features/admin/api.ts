@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { unwrap } from "@/api/client";
 import { useApi } from "@/api/context";
@@ -6,6 +6,7 @@ import type { components } from "@/api/schema";
 import type { Role } from "@/api/types";
 
 export type NewPerson = components["schemas"]["CreateUserRequest"];
+export type TicketStats = components["schemas"]["TicketStatsResponse"];
 
 export interface PeopleFilters {
   search: string;
@@ -18,6 +19,7 @@ const PAGE_SIZE = 50;
 export const adminKeys = {
   people: ["admin", "people"] as const,
   peopleList: (filters: PeopleFilters) => [...adminKeys.people, filters] as const,
+  stats: (days: number) => ["admin", "stats", days] as const,
 };
 
 export function usePeople(filters: PeopleFilters) {
@@ -74,5 +76,15 @@ export function useSetActive() {
     return active
       ? unwrap(api.POST("/users/{user_id}/reactivate", { params: { path } }))
       : unwrap(api.POST("/users/{user_id}/deactivate", { params: { path } }));
+  });
+}
+
+export function useTicketStats(days: number) {
+  const api = useApi();
+  return useQuery({
+    queryKey: adminKeys.stats(days),
+    queryFn: () => unwrap(api.GET("/stats/tickets", { params: { query: { days } } })),
+    // Live enough for a dashboard left open on a second screen.
+    refetchInterval: 60_000,
   });
 }

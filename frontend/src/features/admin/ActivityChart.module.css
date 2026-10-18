@@ -1,0 +1,90 @@
+.chart {
+  position: relative;
+  width: 100%;
+}
+
+.chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.baseline {
+  stroke: var(--color-border-strong);
+  stroke-width: 1;
+}
+
+.axisLabel {
+  fill: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.opened {
+  fill: var(--color-chart-opened);
+}
+
+.resolved {
+  fill: var(--color-chart-resolved);
+}
+
+.highlight {
+  fill: var(--color-hover);
+}
+
+.hit {
+  fill: transparent;
+  outline: none;
+  cursor: default;
+}
+
+.hit:focus-visible {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+
+.tooltip {
+  position: absolute;
+  min-width: 140px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--font-size-sm);
+  pointer-events: none;
+}
+
+.tooltip p {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tooltipDay {
+  color: var(--color-text-muted);
+}
+
+.tooltip strong {
+  min-width: 2ch;
+  font-variant-numeric: tabular-nums;
+}
+
+.keyOpened,
+.keyResolved {
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.keyOpened {
+  background: var(--color-chart-opened);
+}
+
+.keyResolved {
+  background: var(--color-chart-resolved);
+}
