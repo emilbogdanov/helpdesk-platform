@@ -1,0 +1,61 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  height: 48px;
+  padding: 0 var(--space-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.wordmark {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.wordmark:hover {
+  text-decoration: none;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.account {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+
+.account:hover {
+  background: var(--color-hover);
+  text-decoration: none;
+}
+
+.name {
+  font-weight: var(--font-weight-medium);
+}
+
+.role {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+}
+
+.main {
+  flex: 1;
+  padding: var(--space-6);
+}
