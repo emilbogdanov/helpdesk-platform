@@ -15,6 +15,40 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.primary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: 100%;
+}
+
+.nav {
+  display: flex;
+  gap: var(--space-1);
+  height: 100%;
+}
+
+.navLink {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.navLink:hover {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+/* NavLink marks the current section with aria-current="page". */
+.navLink[aria-current="page"] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
+
 .wordmark {
   color: var(--color-text);
   font-weight: var(--font-weight-semibold);

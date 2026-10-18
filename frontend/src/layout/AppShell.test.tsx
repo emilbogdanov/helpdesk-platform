@@ -46,7 +46,7 @@ describe("the signed-in app", () => {
   });
 
   it("shows a not-found page for addresses that don't exist", async () => {
-    renderApp("/tickets/archive", { signedInAs: elena });
+    renderApp("/reports", { signedInAs: elena });
 
     expect(await screen.findByText("There's nothing at this address")).toBeInTheDocument();
     expect(screen.getByRole("banner")).toBeInTheDocument();

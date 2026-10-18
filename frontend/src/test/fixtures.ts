@@ -40,3 +40,15 @@ export const maria: Account = {
   },
   password: "correct-horse-battery",
 };
+
+export const nadia: Account = {
+  user: {
+    id: "c41f0b7e-2d58-4a8f-9b6e-0e3f6d7a91c2",
+    email: "nadia.petrova@globex.test",
+    display_name: "Nadia Petrova",
+    role: "customer",
+    is_active: true,
+    created_at: "2026-08-19T15:20:00Z",
+  },
+  password: "copper-lantern-63",
+};

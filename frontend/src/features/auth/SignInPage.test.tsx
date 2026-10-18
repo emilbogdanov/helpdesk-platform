@@ -35,8 +35,8 @@ describe("signing in", () => {
     await user.type(screen.getByLabelText("Password"), petar.password);
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    await screen.findByRole("heading", { name: "Account" });
-    expect(router.state.location.pathname).toBe("/account");
+    await screen.findByRole("heading", { name: "Your tickets" });
+    expect(router.state.location.pathname).toBe("/tickets");
   });
 
   it("explains an expired session and returns to the same page afterwards", async () => {
@@ -58,7 +58,7 @@ describe("signing in", () => {
   it("sends someone who is already signed in past the form", async () => {
     const { router } = renderApp("/sign-in", { signedInAs: petar });
 
-    await screen.findByRole("heading", { name: "Account" });
-    expect(router.state.location.pathname).toBe("/account");
+    await screen.findByRole("heading", { name: "Your tickets" });
+    expect(router.state.location.pathname).toBe("/tickets");
   });
 });

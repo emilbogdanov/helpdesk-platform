@@ -13,9 +13,8 @@ describe("signing up", () => {
     await user.type(screen.getByLabelText("Password"), "granite-meadow-88");
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
-    expect(await screen.findByRole("heading", { name: "Account" })).toBeInTheDocument();
-    expect(screen.getByText("ivo.stoyanov@globex.test")).toBeInTheDocument();
-    expect(screen.getByText(/^Customer: you can open tickets/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Your tickets" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ivo Stoyanov Customer" })).toBeInTheDocument();
   });
 
   it("points to sign-in when the email already has an account", async () => {

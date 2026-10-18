@@ -1,8 +1,8 @@
 import { http, HttpResponse, type HttpHandler } from "msw";
 
 import type { components } from "@/api/schema";
-import type { User } from "@/api/types";
-import { elena, maria, petar, type Account } from "@/test/fixtures";
+import type { Person, Ticket, TicketStatus, User } from "@/api/types";
+import { elena, maria, nadia, petar, type Account } from "@/test/fixtures";
 
 type Schemas = components["schemas"];
 
@@ -12,14 +12,31 @@ function refuse(status: number, code: string, detail: string) {
   return HttpResponse.json({ detail, code } satisfies Schemas["ErrorResponse"], { status });
 }
 
+function personFrom(user: User): Person {
+  return { id: user.id, display_name: user.display_name, role: user.role };
+}
+
+export interface SeededTicket {
+  subject: string;
+  requester: Account;
+  status?: TicketStatus;
+  priority?: Ticket["priority"];
+  assignee?: Account;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // Just enough of the backend for the frontend's tests: real status codes and error codes,
-// accounts kept in memory, tokens that can be revoked to simulate an expired session.
+// accounts and tickets kept in memory, and tokens that can be revoked to simulate an expired
+// session. Ticket rules follow the backend's domain where the UI depends on them.
 export class FakeHelpdesk {
   readonly accounts: Account[];
+  readonly tickets: Ticket[] = [];
   readonly #tokens = new Map<string, User>();
   #failProfileRequests = 0;
 
-  constructor(accounts: Account[] = [petar, elena, maria]) {
+  constructor(accounts: Account[] = [petar, nadia, elena, maria]) {
     this.accounts = accounts.map((account) => ({ ...account, user: { ...account.user } }));
   }
 
@@ -35,6 +52,27 @@ export class FakeHelpdesk {
 
   failNextProfileRequests(count: number): void {
     this.#failProfileRequests = count;
+  }
+
+  seedTicket(seed: SeededTicket): Ticket {
+    const createdAt = seed.createdAt ?? new Date().toISOString();
+    const ticket: Ticket = {
+      id: crypto.randomUUID(),
+      requester: personFrom(seed.requester.user),
+      subject: seed.subject,
+      description: seed.description ?? "Details to follow.",
+      priority: seed.priority ?? "normal",
+      status: seed.status ?? "open",
+      assignee: seed.assignee ? personFrom(seed.assignee.user) : null,
+      created_at: createdAt,
+      updated_at: seed.updatedAt ?? createdAt,
+      resolved_at: null,
+      closed_at: null,
+      first_responded_at: null,
+      sla_breached_at: null,
+    };
+    this.tickets.push(ticket);
+    return ticket;
   }
 
   handlers(): HttpHandler[] {
@@ -78,6 +116,8 @@ export class FakeHelpdesk {
         return HttpResponse.json(user, { status: 201 });
       }),
 
+      ...this.#ticketHandlers(),
+
       http.get("/api/users/me", ({ request }) => {
         if (this.#failProfileRequests > 0) {
           this.#failProfileRequests -= 1;
@@ -87,6 +127,40 @@ export class FakeHelpdesk {
         return user ? HttpResponse.json(user) : refuse(401, "invalid_token", "token is invalid");
       }),
     ];
+  }
+
+  #ticketHandlers(): HttpHandler[] {
+    return [
+      http.get("/api/tickets", ({ request }) => {
+        const user = this.#authenticate(request);
+        if (!user) {
+          return refuse(401, "invalid_token", "token is invalid");
+        }
+        const query = new URL(request.url).searchParams;
+        const statuses = query.getAll("status");
+        const sort = query.get("sort") ?? "newest";
+        const limit = Number(query.get("limit") ?? 25);
+        const offset = Number(query.get("cursor") ?? 0);
+        const matching = this.tickets
+          .filter((ticket) => this.#canSee(user, ticket))
+          .filter((ticket) => statuses.length === 0 || statuses.includes(ticket.status))
+          .sort((a, b) => {
+            const key = sort === "recently_updated" ? "updated_at" : "created_at";
+            const order = a[key].localeCompare(b[key]);
+            return sort === "oldest" ? order : -order;
+          });
+        const items = matching.slice(offset, offset + limit);
+        const hasMore = offset + limit < matching.length;
+        return HttpResponse.json({
+          items,
+          next_cursor: hasMore ? String(offset + limit) : null,
+        } satisfies Schemas["TicketListResponse"]);
+      }),
+    ];
+  }
+
+  #canSee(user: User, ticket: Ticket): boolean {
+    return user.role !== "customer" || ticket.requester.id === user.id;
   }
 
   #authenticate(request: Request): User | undefined {

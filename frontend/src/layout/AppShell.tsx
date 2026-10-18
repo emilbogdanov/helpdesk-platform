@@ -1,4 +1,4 @@
-import { Link, Outlet } from "react-router";
+import { Link, NavLink, Outlet } from "react-router";
 
 import type { Role } from "@/api/types";
 import { useCurrentUser } from "@/features/auth/api";
@@ -40,9 +40,16 @@ export function AppShell() {
     <CurrentUserProvider user={user}>
       <div className={styles.shell}>
         <header className={styles.header}>
-          <Link to="/" className={styles.wordmark}>
-            Helpdesk
-          </Link>
+          <div className={styles.primary}>
+            <Link to="/" className={styles.wordmark}>
+              Helpdesk
+            </Link>
+            <nav aria-label="Main" className={styles.nav}>
+              <NavLink to="/tickets" className={styles.navLink}>
+                Tickets
+              </NavLink>
+            </nav>
+          </div>
           <div className={styles.actions}>
             <ThemeSelect />
             <Link to="/account" className={styles.account}>

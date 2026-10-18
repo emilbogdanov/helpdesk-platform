@@ -7,6 +7,7 @@ import { AuthLayout } from "@/features/auth/AuthLayout";
 import { RequireSession } from "@/features/auth/RequireSession";
 import { SignInPage } from "@/features/auth/SignInPage";
 import { SignUpPage } from "@/features/auth/SignUpPage";
+import { TicketListPage } from "@/features/tickets/TicketListPage";
 import { AppShell } from "@/layout/AppShell";
 
 export const routes: RouteObject[] = [
@@ -26,7 +27,8 @@ export const routes: RouteObject[] = [
           {
             element: <AppShell />,
             children: [
-              { index: true, element: <Navigate to="/account" replace /> },
+              { index: true, element: <Navigate to="/tickets" replace /> },
+              { path: "tickets", element: <TicketListPage /> },
               { path: "account", element: <AccountPage /> },
               { path: "*", element: <NotFoundPage /> },
             ],

@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { HttpHandler } from "msw";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
 import { createApiClient } from "@/api/client";
@@ -16,12 +17,14 @@ interface RenderAppOptions {
   // A token the API no longer accepts, as after a deactivation or a rotated secret.
   withRejectedToken?: boolean;
   helpdesk?: FakeHelpdesk;
+  // Checked before the fake backend's own handlers, e.g. to make one request fail.
+  overrides?: HttpHandler[];
 }
 
 // The whole app, routes and all, against the fake backend: tests drive it like a user would.
 export function renderApp(path: string, options: RenderAppOptions = {}) {
   const helpdesk = options.helpdesk ?? new FakeHelpdesk();
-  server.use(...helpdesk.handlers());
+  server.use(...(options.overrides ?? []), ...helpdesk.handlers());
 
   const session = new SessionStore(sessionStorage);
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000);

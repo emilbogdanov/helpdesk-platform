@@ -8,9 +8,14 @@
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
   cursor: pointer;
+  text-decoration: none;
   transition:
     background-color var(--duration-fast),
     border-color var(--duration-fast);
+}
+
+.button:hover {
+  text-decoration: none;
 }
 
 .button:disabled {

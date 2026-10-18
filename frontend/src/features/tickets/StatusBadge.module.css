@@ -1,0 +1,42 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+/* A dot rather than a filled pill keeps a long table of statuses quiet. */
+.badge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.open {
+  color: var(--color-accent);
+}
+
+.in_progress {
+  color: var(--color-warning);
+}
+
+.waiting_on_customer {
+  color: var(--color-text-muted);
+}
+
+.waiting_on_customer::before {
+  background: transparent;
+  border: 2px solid currentColor;
+}
+
+.resolved {
+  color: var(--color-success);
+}
+
+.closed {
+  color: var(--color-text-subtle);
+}

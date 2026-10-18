@@ -1,0 +1,19 @@
+.priority {
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.low,
+.normal {
+  color: var(--color-text-muted);
+}
+
+.high {
+  color: var(--color-warning);
+  font-weight: var(--font-weight-medium);
+}
+
+.urgent {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-semibold);
+}
