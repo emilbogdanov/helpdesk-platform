@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
@@ -26,7 +27,11 @@ def all_subclasses(base: type[Exception]) -> set[type[Exception]]:
 
 
 def test_every_business_error_has_an_http_response() -> None:
-    errors = all_subclasses(DomainError) | all_subclasses(ApplicationError)
+    errors = {
+        error
+        for error in all_subclasses(DomainError) | all_subclasses(ApplicationError)
+        if error.__module__.startswith("helpdesk.")
+    }
 
     assert errors - set(ERROR_RESPONSES) == set()
 
@@ -37,22 +42,40 @@ def test_codes_are_unique() -> None:
     assert len(codes) == len(set(codes))
 
 
-async def test_an_unmapped_error_becomes_a_500_without_leaking_its_message() -> None:
-    class NewlyAddedError(DomainError):
-        pass
+class NewlyAddedError(DomainError):
+    pass
 
+
+def failing_app(error: Exception) -> FastAPI:
     app = FastAPI()
     register_error_handlers(app)
 
     @app.get("/boom")
     async def boom() -> None:
-        raise NewlyAddedError("internal detail")
+        raise error
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    return app
+
+
+@pytest.mark.parametrize(
+    "error",
+    [NewlyAddedError("internal detail"), RuntimeError("internal detail")],
+    ids=["unmapped-business-error", "plain-bug"],
+)
+async def test_bugs_get_a_500_in_the_usual_shape_without_their_message(error: Exception) -> None:
+    transport = ASGITransport(app=failing_app(error), raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/boom")
 
     assert response.status_code == 500
     assert response.json() == {"detail": "internal error", "code": "internal"}
+
+
+async def test_bugs_still_reach_the_server_with_their_traceback() -> None:
+    transport = ASGITransport(app=failing_app(NewlyAddedError("internal detail")))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with pytest.raises(NewlyAddedError, match="internal detail"):
+            await client.get("/boom")
 
 
 async def test_malformed_requests_use_the_same_error_shape(client: AsyncClient) -> None:

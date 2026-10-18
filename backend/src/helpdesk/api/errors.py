@@ -1,4 +1,3 @@
-import logging
 from typing import Any
 
 from fastapi import FastAPI, Request, status
@@ -9,7 +8,6 @@ from fastapi.responses import JSONResponse
 from helpdesk.api.schemas import ErrorResponse
 from helpdesk.application.errors import (
     AdminOnlyError,
-    ApplicationError,
     ConcurrentUpdateError,
     EmailTakenError,
     IdempotencyKeyConflictError,
@@ -22,7 +20,7 @@ from helpdesk.application.errors import (
     TicketNotFoundError,
     UserNotFoundError,
 )
-from helpdesk.domain.errors import DomainError, InvalidValueError
+from helpdesk.domain.errors import InvalidValueError
 from helpdesk.domain.tickets.errors import (
     AssigneeRequiredError,
     InternalNoteNotAllowedError,
@@ -30,8 +28,6 @@ from helpdesk.domain.tickets.errors import (
     NotTicketRequesterError,
     TicketClosedError,
 )
-
-logger = logging.getLogger(__name__)
 
 # The one place where business errors become HTTP responses. The code is stable and meant for
 # clients to branch on; the message is for people.
@@ -63,9 +59,13 @@ def error_responses(*status_codes: int) -> dict[int | str, dict[str, Any]]:
 
 
 def register_error_handlers(app: FastAPI) -> None:
-    app.add_exception_handler(DomainError, _to_response)
-    app.add_exception_handler(ApplicationError, _to_response)
+    for error_type in ERROR_RESPONSES:
+        app.add_exception_handler(error_type, _to_response)
     app.exception_handler(RequestValidationError)(_malformed_request)
+    # Everything else is a bug, including a business error nobody mapped. Starlette answers it
+    # with this handler and then re-raises it, so the server logs the full traceback and error
+    # trackers see it as unhandled.
+    app.add_exception_handler(Exception, _unexpected)
 
 
 # FastAPI's default 422 body has a different shape from every other error. Clients get one
@@ -81,18 +81,22 @@ async def _malformed_request(_: Request, error: RequestValidationError) -> JSONR
     )
 
 
-async def _to_response(request: Request, error: Exception) -> JSONResponse:
-    mapped = next(
-        (ERROR_RESPONSES[cls] for cls in type(error).__mro__ if cls in ERROR_RESPONSES), None
+async def _to_response(_: Request, error: Exception) -> JSONResponse:
+    # Handlers are registered per mapped type, so one of the error's classes is in the table.
+    status_code, code = next(
+        ERROR_RESPONSES[cls] for cls in type(error).__mro__ if cls in ERROR_RESPONSES
     )
-    if mapped is None:
-        logger.error("unmapped %s on %s %s", type(error).__name__, request.method, request.url.path)
-        return JSONResponse({"detail": "internal error", "code": "internal"}, status_code=500)
-    status_code, code = mapped
     return JSONResponse(
         {"detail": str(error), "code": code},
         status_code=status_code,
         headers={"WWW-Authenticate": "Bearer"}
         if status_code == status.HTTP_401_UNAUTHORIZED
         else None,
+    )
+
+
+async def _unexpected(_: Request, __: Exception) -> JSONResponse:
+    return JSONResponse(
+        {"detail": "internal error", "code": "internal"},
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
     )
