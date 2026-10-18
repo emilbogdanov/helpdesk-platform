@@ -6,6 +6,11 @@ build/
 dist/
 *.egg-info/
 
+# Node
+node_modules/
+coverage/
+*.tsbuildinfo
+
 # Tool caches
 .mypy_cache/
 .ruff_cache/
