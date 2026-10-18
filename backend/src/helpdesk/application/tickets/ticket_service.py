@@ -3,10 +3,14 @@ from datetime import datetime
 from uuid import uuid4
 
 from helpdesk.application.actor import Actor
-from helpdesk.application.errors import IdempotencyKeyConflictError, IdempotencyKeyReusedError
+from helpdesk.application.errors import (
+    IdempotencyKeyConflictError,
+    IdempotencyKeyReusedError,
+    InvalidAssigneeError,
+)
 from helpdesk.application.ports import Clock, UnitOfWork
 from helpdesk.application.tickets.access import load_visible_ticket, require_staff
-from helpdesk.domain.ids import TicketId
+from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.ticket import Ticket
 from helpdesk.domain.tickets.values import Description, Priority, Subject
@@ -89,6 +93,17 @@ class TicketService:
             change=lambda ticket, at: ticket.assign(actor.user_id, at=at),
         )
 
+    async def assign(self, actor: Actor, ticket_id: TicketId, assignee_id: UserId) -> Ticket:
+        require_staff(actor, "assign tickets")
+        async with self._uow as uow:
+            assignee = await uow.users.get(assignee_id)
+            if assignee is None or not assignee.can_work_tickets:
+                raise InvalidAssigneeError(assignee_id)
+            ticket = await load_visible_ticket(uow.tickets, actor, ticket_id)
+            ticket.assign(assignee_id, at=self._clock.now())
+            await self._save_changes(uow, actor, ticket)
+        return ticket
+
     async def unassign(self, actor: Actor, ticket_id: TicketId) -> Ticket:
         return await self._work_on(
             actor,
@@ -142,9 +157,14 @@ class TicketService:
         async with self._uow as uow:
             ticket = await load_visible_ticket(uow.tickets, actor, ticket_id)
             change(ticket, self._clock.now())
-            events = ticket.pull_events()
-            if events:
-                await uow.tickets.update(ticket)
-                await uow.audit.record(actor.user_id, events)
-                await uow.commit()
+            await self._save_changes(uow, actor, ticket)
         return ticket
+
+    @staticmethod
+    async def _save_changes(uow: UnitOfWork, actor: Actor, ticket: Ticket) -> None:
+        events = ticket.pull_events()
+        if not events:
+            return
+        await uow.tickets.update(ticket)
+        await uow.audit.record(actor.user_id, events)
+        await uow.commit()

@@ -73,3 +73,9 @@ class OwnAccountError(ApplicationError):
     def __init__(self, action: str) -> None:
         super().__init__(f"you can't {action} on your own account")
         self.action = action
+
+
+class InvalidAssigneeError(ApplicationError):
+    def __init__(self, user_id: UserId) -> None:
+        super().__init__(f"user {user_id} is not an active agent or admin")
+        self.user_id = user_id

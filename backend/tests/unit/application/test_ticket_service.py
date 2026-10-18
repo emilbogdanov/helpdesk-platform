@@ -1,9 +1,12 @@
+from uuid import UUID
+
 import pytest
 
 from helpdesk.application.actor import Actor
 from helpdesk.application.errors import (
     IdempotencyKeyConflictError,
     IdempotencyKeyReusedError,
+    InvalidAssigneeError,
     StaffOnlyError,
     TicketNotFoundError,
 )
@@ -32,6 +35,7 @@ from tests.unit.domain.tickets.builders import (
     open_ticket,
     ticket_in,
 )
+from tests.unit.domain.users.builders import everyone
 
 CUSTOMER = Actor(REQUESTER, Role.CUSTOMER)
 AGENT_MILA = Actor(MILA, Role.AGENT)
@@ -58,6 +62,11 @@ def service(uow: FakeUnitOfWork, clock: FixedClock) -> TicketService:
 
 async def seed(uow: FakeUnitOfWork, ticket: Ticket) -> None:
     await uow.tickets.add(ticket, idempotency_key=None)
+
+
+async def seed_people(uow: FakeUnitOfWork) -> None:
+    for person in everyone():
+        await uow.users.add(person)
 
 
 async def stored(uow: FakeUnitOfWork) -> Ticket:
@@ -311,6 +320,48 @@ class TestChangeStatus:
 
 
 class TestAssignment:
+    async def test_admin_assigns_a_ticket_to_an_agent(
+        self, service: TicketService, uow: FakeUnitOfWork
+    ) -> None:
+        await seed_people(uow)
+        await seed(uow, open_ticket())
+
+        ticket = await service.assign(Actor(STEFAN, Role.ADMIN), TICKET_ID, MILA)
+
+        assert ticket.assignee_id == MILA
+        assert (await stored(uow)).assignee_id == MILA
+        assert uow.audit.entries == [
+            (
+                STEFAN,
+                TicketAssigneeChanged(
+                    ticket_id=TICKET_ID, occurred_at=LATER, previous=None, current=MILA
+                ),
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "assignee",
+        [REQUESTER, MILA, UserId(UUID(int=404))],
+        ids=["customer", "deactivated-agent", "unknown-user"],
+    )
+    async def test_assignee_must_be_active_staff(
+        self, service: TicketService, uow: FakeUnitOfWork, assignee: UserId
+    ) -> None:
+        await seed_people(uow)
+        uow.users.rows[MILA].deactivate()
+        await seed(uow, open_ticket())
+
+        with pytest.raises(InvalidAssigneeError) as excinfo:
+            await service.assign(AGENT_STEFAN, TICKET_ID, assignee)
+
+        assert excinfo.value.user_id == assignee
+        assert (await stored(uow)).assignee_id is None
+        assert uow.commits == 0
+
+    async def test_customers_cannot_assign_tickets(self, service: TicketService) -> None:
+        with pytest.raises(StaffOnlyError, match="assign tickets"):
+            await service.assign(CUSTOMER, TICKET_ID, MILA)
+
     async def test_agent_takes_an_unassigned_ticket(
         self, service: TicketService, uow: FakeUnitOfWork
     ) -> None:
