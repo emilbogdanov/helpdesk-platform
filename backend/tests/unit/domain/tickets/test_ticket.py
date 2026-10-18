@@ -1,10 +1,7 @@
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
 import pytest
 
-from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.errors import (
     AssigneeRequiredError,
     InvalidStatusTransitionError,
@@ -19,45 +16,17 @@ from helpdesk.domain.tickets.events import (
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.ticket import Ticket
 from helpdesk.domain.tickets.values import Description, Priority, Subject
-
-TICKET_ID = TicketId(UUID("0b6d3c1e-5f0a-4a52-9a43-7f3e2d18c901"))
-REQUESTER = UserId(UUID("4c2f8e71-93d4-4b6a-8e15-2a9b7c3d5f10"))
-MILA = UserId(UUID("a81e4b2c-6d37-4f95-b0c8-1e2d3f4a5b6c"))
-STEFAN = UserId(UUID("d5c4b3a2-1f0e-4d9c-8b7a-6f5e4d3c2b1a"))
-
-OPENED_AT = datetime(2026, 10, 12, 9, 14, tzinfo=UTC)
-LATER = OPENED_AT + timedelta(minutes=40)
-MUCH_LATER = OPENED_AT + timedelta(days=2)
-
-
-def open_ticket(priority: Priority = Priority.NORMAL) -> Ticket:
-    return Ticket.open(
-        ticket_id=TICKET_ID,
-        requester_id=REQUESTER,
-        subject=Subject("Invoice PDF shows last month's VAT rate"),
-        description=Description("Downloaded the October invoice from Billing; it still uses 19%."),
-        priority=priority,
-        at=OPENED_AT,
-    )
-
-
-def ticket_in(status: TicketStatus) -> Ticket:
-    ticket = open_ticket()
-    ticket.assign(MILA, at=OPENED_AT)
-    path = {
-        TicketStatus.OPEN: [],
-        TicketStatus.IN_PROGRESS: [TicketStatus.IN_PROGRESS],
-        TicketStatus.WAITING_ON_CUSTOMER: [
-            TicketStatus.IN_PROGRESS,
-            TicketStatus.WAITING_ON_CUSTOMER,
-        ],
-        TicketStatus.RESOLVED: [TicketStatus.IN_PROGRESS, TicketStatus.RESOLVED],
-        TicketStatus.CLOSED: [TicketStatus.IN_PROGRESS, TicketStatus.RESOLVED, TicketStatus.CLOSED],
-    }[status]
-    for step in path:
-        ticket.change_status(step, at=OPENED_AT)
-    ticket.pull_events()
-    return ticket
+from tests.unit.domain.tickets.builders import (
+    LATER,
+    MILA,
+    MUCH_LATER,
+    OPENED_AT,
+    REQUESTER,
+    STEFAN,
+    TICKET_ID,
+    open_ticket,
+    ticket_in,
+)
 
 
 class TestOpen:
