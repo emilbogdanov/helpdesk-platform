@@ -87,6 +87,9 @@ class User:
     def change_role(self, role: Role) -> None:
         self._role = role
 
+    def change_password(self, password_hash: str) -> None:
+        self._password_hash = password_hash
+
     def deactivate(self) -> None:
         self._is_active = False
 

@@ -1,11 +1,15 @@
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from helpdesk.application.errors import InvalidCredentialsError
 from helpdesk.cli import PASSWORD_VARIABLE, main
 from helpdesk.config import Settings
+from helpdesk.domain.users.values import EmailAddress
 from helpdesk.main import app as create_production_app
+from helpdesk.main import build_container
 
 pytestmark = pytest.mark.integration
 
@@ -42,6 +46,59 @@ def test_create_admin_refuses_a_malformed_email(
 ) -> None:
     assert main(["create-admin", "--email", "ops", "--name", "Operations"]) == 1
     assert "must look like" in capsys.readouterr().err
+
+
+class TestResetPassword:
+    NEW_PASSWORD = "lantern-quay-88"
+
+    def test_the_new_password_works_and_the_old_one_stops_working(
+        self, admin: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setenv(PASSWORD_VARIABLE, self.NEW_PASSWORD)
+
+        assert main(["reset-password", "--email", ADMIN_EMAIL]) == 0
+
+        assert capsys.readouterr().out == f"new password set for {ADMIN_EMAIL}\n"
+        assert asyncio.run(_can_log_in(ADMIN_EMAIL, self.NEW_PASSWORD))
+        assert not asyncio.run(_can_log_in(ADMIN_EMAIL, ADMIN_PASSWORD))
+
+    def test_unknown_email_is_an_error(
+        self, production_settings: Settings, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert main(["reset-password", "--email", "nobody@helpdesk.test"]) == 1
+        assert capsys.readouterr().err == "error: no account uses nobody@helpdesk.test\n"
+
+    def test_typing_the_password_twice_sets_it(
+        self, admin: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(PASSWORD_VARIABLE)
+        monkeypatch.setattr("getpass.getpass", lambda _prompt: self.NEW_PASSWORD)
+
+        assert main(["reset-password", "--email", ADMIN_EMAIL]) == 0
+        assert asyncio.run(_can_log_in(ADMIN_EMAIL, self.NEW_PASSWORD))
+
+    def test_a_mistyped_repeat_changes_nothing(
+        self, admin: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.delenv(PASSWORD_VARIABLE)
+        typed = iter([self.NEW_PASSWORD, "lantern-quay-89"])
+        monkeypatch.setattr("getpass.getpass", lambda _prompt: next(typed))
+
+        assert main(["reset-password", "--email", ADMIN_EMAIL]) == 1
+
+        assert capsys.readouterr().err == "error: the two passwords don't match\n"
+        assert asyncio.run(_can_log_in(ADMIN_EMAIL, ADMIN_PASSWORD))
+
+
+async def _can_log_in(email: str, password: str) -> bool:
+    container = build_container(Settings())
+    try:
+        await container.auth().log_in(EmailAddress(email), password)
+    except InvalidCredentialsError:
+        return False
+    finally:
+        await container.close()
+    return True
 
 
 @pytest.fixture

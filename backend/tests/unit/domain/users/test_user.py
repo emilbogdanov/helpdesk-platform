@@ -70,3 +70,11 @@ def test_repr_leaves_out_personal_data() -> None:
     mila = user(MILA, email="mila@helpdesk.test", name="Mila", role=Role.AGENT)
 
     assert repr(mila) == f"User(id={MILA}, role=agent, is_active=True)"
+
+
+def test_change_password_replaces_the_hash() -> None:
+    mila = user(MILA, email="mila@helpdesk.test", name="Mila", role=Role.AGENT)
+
+    mila.change_password("new-argon2-hash")
+
+    assert mila.password_hash == "new-argon2-hash"
