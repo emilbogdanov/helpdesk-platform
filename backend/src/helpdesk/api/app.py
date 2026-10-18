@@ -19,4 +19,11 @@ def create_app(container: Container) -> FastAPI:
     register_error_handlers(app)
     for router in (auth.router, tickets.router, users.router):
         app.include_router(router)
+
+    # Liveness only: answers as long as the process serves requests. It deliberately doesn't
+    # touch the database, so a database outage doesn't get every API container restarted.
+    @app.get("/health", include_in_schema=False)
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     return app
