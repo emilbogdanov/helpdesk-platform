@@ -3,7 +3,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from helpdesk.application.actor import Actor
-from helpdesk.application.errors import IdempotencyKeyReusedError
+from helpdesk.application.errors import IdempotencyKeyConflictError, IdempotencyKeyReusedError
 from helpdesk.application.ports import Clock, UnitOfWork
 from helpdesk.application.tickets.access import load_visible_ticket, require_staff
 from helpdesk.domain.ids import TicketId
@@ -28,17 +28,16 @@ class TicketService:
     ) -> Ticket:
         async with self._uow as uow:
             if idempotency_key is not None:
-                existing = await uow.tickets.find_by_idempotency_key(actor.user_id, idempotency_key)
-                if existing is not None:
-                    # A retry must carry the same request; anything else is a client bug that
-                    # would otherwise silently return the wrong ticket.
-                    if (existing.subject, existing.description, existing.priority) != (
-                        subject,
-                        description,
-                        priority,
-                    ):
-                        raise IdempotencyKeyReusedError(idempotency_key)
-                    return existing
+                earlier = await self._replay(
+                    uow,
+                    actor,
+                    idempotency_key,
+                    subject=subject,
+                    description=description,
+                    priority=priority,
+                )
+                if earlier is not None:
+                    return earlier
 
             ticket = Ticket.open(
                 ticket_id=TicketId(uuid4()),
@@ -48,7 +47,22 @@ class TicketService:
                 priority=priority,
                 at=self._clock.now(),
             )
-            await uow.tickets.add(ticket, idempotency_key=idempotency_key)
+            try:
+                await uow.tickets.add(ticket, idempotency_key=idempotency_key)
+            except IdempotencyKeyConflictError as conflict:
+                # A concurrent request with the same key was stored between our lookup and
+                # our insert. Answer exactly as a retry of that request would be answered.
+                earlier = await self._replay(
+                    uow,
+                    actor,
+                    conflict.key,
+                    subject=subject,
+                    description=description,
+                    priority=priority,
+                )
+                if earlier is None:
+                    raise
+                return earlier
             await uow.audit.record(actor.user_id, ticket.pull_events())
             await uow.commit()
         return ticket
@@ -92,6 +106,29 @@ class TicketService:
             action="change ticket priority",
             change=lambda ticket, at: ticket.change_priority(priority, at=at),
         )
+
+    @staticmethod
+    async def _replay(
+        uow: UnitOfWork,
+        actor: Actor,
+        key: str,
+        *,
+        subject: Subject,
+        description: Description,
+        priority: Priority,
+    ) -> Ticket | None:
+        earlier = await uow.tickets.find_by_idempotency_key(actor.user_id, key)
+        if earlier is None:
+            return None
+        # A retry must carry the same request; anything else is a client bug that would
+        # otherwise silently get back the wrong ticket.
+        if (earlier.subject, earlier.description, earlier.priority) != (
+            subject,
+            description,
+            priority,
+        ):
+            raise IdempotencyKeyReusedError(key)
+        return earlier
 
     async def _work_on(
         self,

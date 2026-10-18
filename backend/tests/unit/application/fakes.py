@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from types import TracebackType
 from typing import Self
 
+from helpdesk.application.errors import IdempotencyKeyConflictError
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment, Visibility
 from helpdesk.domain.tickets.events import TicketEvent
@@ -39,9 +40,11 @@ class InMemoryTicketRepository:
 
     async def add(self, ticket: Ticket, *, idempotency_key: str | None) -> None:
         assert ticket.id not in self.rows, f"ticket {ticket.id} added twice"
-        self.rows[ticket.id] = _stored(ticket)
         if idempotency_key is not None:
+            if (ticket.requester_id, idempotency_key) in self.idempotency_keys:
+                raise IdempotencyKeyConflictError(idempotency_key)
             self.idempotency_keys[ticket.requester_id, idempotency_key] = ticket.id
+        self.rows[ticket.id] = _stored(ticket)
 
     async def update(self, ticket: Ticket) -> None:
         assert ticket.id in self.rows, f"ticket {ticket.id} updated before it was added"

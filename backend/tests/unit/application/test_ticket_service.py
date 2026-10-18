@@ -2,11 +2,13 @@ import pytest
 
 from helpdesk.application.actor import Actor
 from helpdesk.application.errors import (
+    IdempotencyKeyConflictError,
     IdempotencyKeyReusedError,
     StaffOnlyError,
     TicketNotFoundError,
 )
 from helpdesk.application.tickets.ticket_service import TicketService
+from helpdesk.domain.ids import UserId
 from helpdesk.domain.roles import Role
 from helpdesk.domain.tickets.errors import AssigneeRequiredError, InvalidStatusTransitionError
 from helpdesk.domain.tickets.events import (
@@ -18,7 +20,7 @@ from helpdesk.domain.tickets.events import (
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.ticket import Ticket
 from helpdesk.domain.tickets.values import Description, Priority, Subject
-from tests.unit.application.fakes import FakeUnitOfWork, FixedClock
+from tests.unit.application.fakes import FakeUnitOfWork, FixedClock, InMemoryTicketRepository
 from tests.unit.domain.tickets.builders import (
     LATER,
     MILA,
@@ -163,6 +165,83 @@ class TestOpenTicket:
             )
 
         assert len(uow.tickets.rows) == 2
+
+
+class RacingTicketRepository(InMemoryTicketRepository):
+    """Hides stored keys from the first `hidden_lookups` lookups.
+
+    That is what a request sees when a concurrent request with the same key commits after
+    its lookup but before its insert.
+    """
+
+    def __init__(self, hidden_lookups: int) -> None:
+        super().__init__()
+        self.hidden_lookups = hidden_lookups
+
+    async def find_by_idempotency_key(self, requester_id: UserId, key: str) -> Ticket | None:
+        if self.hidden_lookups > 0:
+            self.hidden_lookups -= 1
+            return None
+        return await super().find_by_idempotency_key(requester_id, key)
+
+
+class TestIdempotencyKeyRace:
+    @pytest.fixture
+    async def winner(self, uow: FakeUnitOfWork) -> Ticket:
+        uow.tickets = RacingTicketRepository(hidden_lookups=1)
+        ticket = Ticket.open(
+            ticket_id=TICKET_ID,
+            requester_id=REQUESTER,
+            subject=SUBJECT,
+            description=DESCRIPTION,
+            priority=Priority.NORMAL,
+            at=OPENED_AT,
+        )
+        await uow.tickets.add(ticket, idempotency_key="b7c1e0d2-retry")
+        return ticket
+
+    async def test_loser_gets_the_winners_ticket(
+        self, service: TicketService, uow: FakeUnitOfWork, winner: Ticket
+    ) -> None:
+        ticket = await service.open_ticket(
+            CUSTOMER,
+            subject=SUBJECT,
+            description=DESCRIPTION,
+            priority=Priority.NORMAL,
+            idempotency_key="b7c1e0d2-retry",
+        )
+
+        assert ticket.id == winner.id
+        assert list(uow.tickets.rows) == [winner.id]
+        assert uow.audit.entries == []
+        assert uow.commits == 0
+
+    async def test_loser_with_a_different_request_is_rejected(
+        self, service: TicketService, winner: Ticket
+    ) -> None:
+        with pytest.raises(IdempotencyKeyReusedError):
+            await service.open_ticket(
+                CUSTOMER,
+                subject=winner.subject,
+                description=winner.description,
+                priority=Priority.URGENT,
+                idempotency_key="b7c1e0d2-retry",
+            )
+
+    async def test_conflict_without_a_visible_winner_is_not_swallowed(
+        self, service: TicketService, uow: FakeUnitOfWork, winner: Ticket
+    ) -> None:
+        assert isinstance(uow.tickets, RacingTicketRepository)
+        uow.tickets.hidden_lookups = 2
+
+        with pytest.raises(IdempotencyKeyConflictError):
+            await service.open_ticket(
+                CUSTOMER,
+                subject=winner.subject,
+                description=winner.description,
+                priority=winner.priority,
+                idempotency_key="b7c1e0d2-retry",
+            )
 
 
 class TestGetTicket:

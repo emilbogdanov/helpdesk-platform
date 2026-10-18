@@ -22,3 +22,10 @@ class IdempotencyKeyReusedError(ApplicationError):
     def __init__(self, key: str) -> None:
         super().__init__(f"idempotency key {key!r} was already used for a different ticket")
         self.key = key
+
+
+class IdempotencyKeyConflictError(ApplicationError):
+    # Raised by TicketRepository.add when another request stored the same key first.
+    def __init__(self, key: str) -> None:
+        super().__init__(f"idempotency key {key!r} is already taken")
+        self.key = key
