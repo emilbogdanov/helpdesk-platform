@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from helpdesk.domain.ids import TicketId, UserId
+from helpdesk.domain.ids import CommentId, TicketId, UserId
+from helpdesk.domain.tickets.comment import Visibility
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.values import Priority
 
@@ -34,3 +35,10 @@ class TicketAssigneeChanged(TicketEvent):
 class TicketPriorityChanged(TicketEvent):
     previous: Priority
     current: Priority
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CommentAdded(TicketEvent):
+    comment_id: CommentId
+    author_id: UserId
+    visibility: Visibility

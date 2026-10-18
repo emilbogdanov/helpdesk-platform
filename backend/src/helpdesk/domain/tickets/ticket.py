@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from helpdesk.domain.tickets.comment import Comment, Visibility
 from helpdesk.domain.tickets.errors import (
     AssigneeRequiredError,
+    InternalNoteNotAllowedError,
     InvalidStatusTransitionError,
+    NotTicketRequesterError,
     TicketClosedError,
 )
 from helpdesk.domain.tickets.events import (
+    CommentAdded,
     TicketAssigneeChanged,
     TicketEvent,
     TicketOpened,
@@ -19,8 +23,17 @@ from helpdesk.domain.tickets.status import TicketStatus
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from helpdesk.domain.ids import TicketId, UserId
+    from helpdesk.domain.ids import CommentId, TicketId, UserId
+    from helpdesk.domain.roles import Role
+    from helpdesk.domain.tickets.comment import CommentBody
     from helpdesk.domain.tickets.values import Description, Priority, Subject
+
+# A reply from the requester means the ticket needs attention again: while we wait on them it
+# goes back to the assignee, and after resolution it means the problem wasn't actually solved.
+_STATUS_AFTER_REQUESTER_REPLY = {
+    TicketStatus.WAITING_ON_CUSTOMER: TicketStatus.IN_PROGRESS,
+    TicketStatus.RESOLVED: TicketStatus.OPEN,
+}
 
 
 class Ticket:
@@ -140,21 +153,7 @@ class Ticket:
             raise InvalidStatusTransitionError(self._status, target)
         if target.requires_assignee and self._assignee_id is None:
             raise AssigneeRequiredError(target)
-
-        previous = self._status
-        self._status = target
-        if target is TicketStatus.RESOLVED:
-            self._resolved_at = at
-        elif target is TicketStatus.OPEN:
-            self._resolved_at = None
-        elif target is TicketStatus.CLOSED:
-            self._closed_at = at
-        self._updated_at = at
-        self._events.append(
-            TicketStatusChanged(
-                ticket_id=self._id, occurred_at=at, previous=previous, current=target
-            )
-        )
+        self._move_to(target, at)
 
     def assign(self, agent_id: UserId, *, at: datetime) -> None:
         # Whether agent_id belongs to an agent is checked by the caller: roles live outside
@@ -185,9 +184,65 @@ class Ticket:
             )
         )
 
+    def add_comment(
+        self,
+        *,
+        comment_id: CommentId,
+        author_id: UserId,
+        author_role: Role,
+        body: CommentBody,
+        visibility: Visibility,
+        at: datetime,
+    ) -> Comment:
+        self._ensure_not_closed()
+        if visibility is Visibility.INTERNAL and not author_role.is_staff:
+            raise InternalNoteNotAllowedError
+        if not author_role.is_staff and author_id != self._requester_id:
+            raise NotTicketRequesterError(self._id)
+
+        comment = Comment(
+            id=comment_id,
+            ticket_id=self._id,
+            author_id=author_id,
+            body=body,
+            visibility=visibility,
+            created_at=at,
+        )
+        self._updated_at = at
+        self._events.append(
+            CommentAdded(
+                ticket_id=self._id,
+                occurred_at=at,
+                comment_id=comment_id,
+                author_id=author_id,
+                visibility=visibility,
+            )
+        )
+        if author_id == self._requester_id and visibility is Visibility.PUBLIC:
+            follow_up = _STATUS_AFTER_REQUESTER_REPLY.get(self._status)
+            if follow_up is not None:
+                self._move_to(follow_up, at)
+        return comment
+
     def pull_events(self) -> list[TicketEvent]:
         events, self._events = self._events, []
         return events
+
+    def _move_to(self, target: TicketStatus, at: datetime) -> None:
+        previous = self._status
+        self._status = target
+        if target is TicketStatus.RESOLVED:
+            self._resolved_at = at
+        elif target is TicketStatus.OPEN:
+            self._resolved_at = None
+        elif target is TicketStatus.CLOSED:
+            self._closed_at = at
+        self._updated_at = at
+        self._events.append(
+            TicketStatusChanged(
+                ticket_id=self._id, occurred_at=at, previous=previous, current=target
+            )
+        )
 
     def _set_assignee(self, assignee_id: UserId | None, at: datetime) -> None:
         previous = self._assignee_id

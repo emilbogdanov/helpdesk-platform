@@ -3,4 +3,5 @@ from typing import NewType
 from uuid import UUID
 
 TicketId = NewType("TicketId", UUID)
+CommentId = NewType("CommentId", UUID)
 UserId = NewType("UserId", UUID)

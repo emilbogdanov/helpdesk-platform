@@ -20,3 +20,14 @@ class TicketClosedError(DomainError):
     def __init__(self, ticket_id: TicketId) -> None:
         super().__init__(f"ticket {ticket_id} is closed and can no longer change")
         self.ticket_id = ticket_id
+
+
+class InternalNoteNotAllowedError(DomainError):
+    def __init__(self) -> None:
+        super().__init__("only agents and admins can write internal notes")
+
+
+class NotTicketRequesterError(DomainError):
+    def __init__(self, ticket_id: TicketId) -> None:
+        super().__init__(f"customers can only comment on their own tickets, not {ticket_id}")
+        self.ticket_id = ticket_id
