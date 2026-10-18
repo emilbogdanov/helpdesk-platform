@@ -41,3 +41,15 @@ class EmailTakenError(ApplicationError):
     def __init__(self, email: EmailAddress) -> None:
         super().__init__(f"an account with {email} already exists")
         self.email = email
+
+
+# One error for unknown email, wrong password and disabled account alike: telling them apart
+# would let anyone check which addresses have accounts.
+class InvalidCredentialsError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__("email or password is incorrect")
+
+
+class InvalidTokenError(ApplicationError):
+    def __init__(self, reason: str = "access token is invalid") -> None:
+        super().__init__(reason)

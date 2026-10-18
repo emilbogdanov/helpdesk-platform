@@ -4,12 +4,20 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from types import TracebackType
 from typing import Self
+from uuid import UUID
 
-from helpdesk.application.errors import IdempotencyKeyConflictError
+from helpdesk.application.errors import (
+    EmailTakenError,
+    IdempotencyKeyConflictError,
+    InvalidTokenError,
+)
+from helpdesk.application.ports import TokenClaims
 from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.tickets.comment import Comment, Visibility
 from helpdesk.domain.tickets.events import TicketEvent
 from helpdesk.domain.tickets.ticket import Ticket
+from helpdesk.domain.users.user import User
+from helpdesk.domain.users.values import EmailAddress, Password
 
 
 class FixedClock:
@@ -70,6 +78,53 @@ class InMemoryCommentRepository:
         return sorted(thread, key=lambda comment: comment.created_at)
 
 
+class InMemoryUserRepository:
+    def __init__(self) -> None:
+        self.rows: dict[UserId, User] = {}
+
+    async def get(self, user_id: UserId) -> User | None:
+        user = self.rows.get(user_id)
+        return deepcopy(user) if user is not None else None
+
+    async def get_by_email(self, email: EmailAddress) -> User | None:
+        for user in self.rows.values():
+            if user.email == email:
+                return deepcopy(user)
+        return None
+
+    async def add(self, user: User) -> None:
+        assert user.id not in self.rows, f"user {user.id} added twice"
+        if any(existing.email == user.email for existing in self.rows.values()):
+            raise EmailTakenError(user.email)
+        self.rows[user.id] = deepcopy(user)
+
+    async def update(self, user: User) -> None:
+        assert user.id in self.rows, f"user {user.id} updated before it was added"
+        self.rows[user.id] = deepcopy(user)
+
+
+class FakePasswordHasher:
+    async def hash(self, password: Password) -> str:
+        return f"hashed:{password.value}"
+
+    async def verify(self, password_hash: str | None, candidate: str) -> bool:
+        return password_hash == f"hashed:{candidate}"
+
+
+class FakeTokenCodec:
+    def encode(self, claims: TokenClaims) -> str:
+        return f"{claims.user_id}|{claims.expires_at.isoformat()}"
+
+    def decode(self, token: str) -> TokenClaims:
+        user_id, _, expires_at = token.partition("|")
+        try:
+            return TokenClaims(
+                user_id=UserId(UUID(user_id)), expires_at=datetime.fromisoformat(expires_at)
+            )
+        except ValueError as error:
+            raise InvalidTokenError from error
+
+
 class InMemoryAuditLog:
     def __init__(self) -> None:
         self.entries: list[tuple[UserId, TicketEvent]] = []
@@ -84,6 +139,7 @@ class _Snapshot:
     idempotency_keys: dict[tuple[UserId, str], TicketId]
     comments: list[Comment]
     audit: list[tuple[UserId, TicketEvent]]
+    users: dict[UserId, User]
 
 
 class FakeUnitOfWork:
@@ -91,6 +147,7 @@ class FakeUnitOfWork:
         self.tickets = InMemoryTicketRepository()
         self.comments = InMemoryCommentRepository()
         self.audit = InMemoryAuditLog()
+        self.users = InMemoryUserRepository()
         self.commits = 0
         self._committed_in_block = False
         self._snapshot: _Snapshot | None = None
@@ -103,6 +160,7 @@ class FakeUnitOfWork:
                 idempotency_keys=self.tickets.idempotency_keys,
                 comments=self.comments.rows,
                 audit=self.audit.entries,
+                users=self.users.rows,
             )
         )
         return self
@@ -119,6 +177,7 @@ class FakeUnitOfWork:
         self.tickets.idempotency_keys = self._snapshot.idempotency_keys
         self.comments.rows = self._snapshot.comments
         self.audit.entries = self._snapshot.audit
+        self.users.rows = self._snapshot.users
 
     async def commit(self) -> None:
         self.commits += 1
