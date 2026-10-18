@@ -4,6 +4,7 @@ import type { Role } from "@/api/types";
 import { useCurrentUser } from "@/features/auth/api";
 import { CurrentUserProvider } from "@/features/auth/current-user";
 import { useSessionStore } from "@/features/auth/session-context";
+import { ThemeSelect } from "@/features/theme/ThemeSelect";
 import styles from "@/layout/AppShell.module.css";
 import { Button } from "@/ui/Button";
 import { PageState } from "@/ui/PageState";
@@ -43,6 +44,7 @@ export function AppShell() {
             Helpdesk
           </Link>
           <div className={styles.actions}>
+            <ThemeSelect />
             <Link to="/account" className={styles.account}>
               <span className={styles.name}>{user.display_name}</span>{" "}
               <span className={styles.role}>{roleLabels[user.role]}</span>

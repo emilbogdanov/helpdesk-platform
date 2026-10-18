@@ -14,6 +14,7 @@ afterEach(() => {
   server.resetHandlers();
   sessionStorage.clear();
   localStorage.clear();
+  delete document.documentElement.dataset.theme;
 });
 
 afterAll(() => {

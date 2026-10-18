@@ -26,6 +26,15 @@ describe("the signed-in app", () => {
     expect(sessionStorage.getItem("helpdesk.session")).toBeNull();
   });
 
+  it("remembers the theme the user picked", async () => {
+    const { user } = renderApp("/account", { signedInAs: maria });
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Theme" }), "Dark");
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("helpdesk.theme")).toBe("dark");
+  });
+
   it("offers a retry when the account can't be loaded", async () => {
     const helpdesk = new FakeHelpdesk();
     helpdesk.failNextProfileRequests(1);
