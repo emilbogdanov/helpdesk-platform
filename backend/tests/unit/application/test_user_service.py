@@ -81,6 +81,11 @@ class TestCreateUser:
             )
 
 
+@pytest.mark.parametrize("actor", [Actor(REQUESTER, Role.CUSTOMER), AGENT, ADMIN])
+async def test_everyone_can_view_their_own_profile(service: UserService, actor: Actor) -> None:
+    assert (await service.get_profile(actor)).id == actor.user_id
+
+
 class TestGetUser:
     async def test_admin_can_view_any_account(self, service: UserService) -> None:
         assert (await service.get_user(ADMIN, REQUESTER)).id == REQUESTER

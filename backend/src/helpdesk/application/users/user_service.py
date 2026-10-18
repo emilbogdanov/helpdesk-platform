@@ -40,6 +40,10 @@ class UserService:
             await uow.commit()
         return user
 
+    async def get_profile(self, actor: Actor) -> User:
+        async with self._uow as uow:
+            return await _load(uow, actor.user_id)
+
     async def get_user(self, actor: Actor, user_id: UserId) -> User:
         _require_admin(actor, "view accounts")
         async with self._uow as uow:
