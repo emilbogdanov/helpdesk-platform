@@ -34,11 +34,28 @@ def user(
     )
 
 
-def everyone() -> list[User]:
+EMAILS = {
+    REQUESTER: "petar.ivanov@northwind.bg",
+    OTHER_CUSTOMER: "elena@brightloop.io",
+    MILA: "mila@helpdesk.test",
+    STEFAN: "stefan@helpdesk.test",
+}
+
+
+def everyone(password_hash: str = FAKE_PASSWORD_HASH) -> list[User]:
     """The people the ticket builders refer to by id."""
     return [
-        user(REQUESTER, email="petar.ivanov@northwind.bg", name="Petar Ivanov", role=Role.CUSTOMER),
-        user(OTHER_CUSTOMER, email="elena@brightloop.io", name="Elena Dimova", role=Role.CUSTOMER),
-        user(MILA, email="mila@helpdesk.test", name="Mila Georgieva", role=Role.AGENT),
-        user(STEFAN, email="stefan@helpdesk.test", name="Stefan Kolev", role=Role.ADMIN),
+        user(
+            user_id,
+            email=EMAILS[user_id],
+            name=name,
+            role=role,
+            password_hash=password_hash,
+        )
+        for user_id, name, role in [
+            (REQUESTER, "Petar Ivanov", Role.CUSTOMER),
+            (OTHER_CUSTOMER, "Elena Dimova", Role.CUSTOMER),
+            (MILA, "Mila Georgieva", Role.AGENT),
+            (STEFAN, "Stefan Kolev", Role.ADMIN),
+        ]
     ]
