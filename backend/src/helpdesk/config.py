@@ -17,3 +17,5 @@ class Settings(BaseSettings):
     redis_url: RedisDsn
     jwt_secret: SecretStr = Field(min_length=32)
     access_token_ttl_minutes: PositiveInt = 15
+    worker_interval_seconds: PositiveInt = 60
+    auto_close_after_days: PositiveInt = 7
