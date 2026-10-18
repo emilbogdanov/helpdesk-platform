@@ -1,4 +1,4 @@
-from helpdesk.domain.ids import TicketId
+from helpdesk.domain.ids import TicketId, UserId
 from helpdesk.domain.users.values import EmailAddress
 
 
@@ -53,3 +53,23 @@ class InvalidCredentialsError(ApplicationError):
 class InvalidTokenError(ApplicationError):
     def __init__(self, reason: str = "access token is invalid") -> None:
         super().__init__(reason)
+
+
+class AdminOnlyError(ApplicationError):
+    def __init__(self, action: str) -> None:
+        super().__init__(f"only admins can {action}")
+        self.action = action
+
+
+class UserNotFoundError(ApplicationError):
+    def __init__(self, user_id: UserId) -> None:
+        super().__init__(f"user {user_id} not found")
+        self.user_id = user_id
+
+
+# Admins can't demote or deactivate themselves. Besides preventing accidental lock-outs, it
+# guarantees there is always at least one active admin: the one making the change.
+class OwnAccountError(ApplicationError):
+    def __init__(self, action: str) -> None:
+        super().__init__(f"you can't {action} on your own account")
+        self.action = action
