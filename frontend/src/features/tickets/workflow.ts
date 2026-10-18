@@ -1,7 +1,19 @@
-import type { Priority, Ticket } from "@/api/types";
+import type { Priority, Ticket, TicketStatus } from "@/api/types";
 
-// Mirrors the backend's first-response targets (domain/tickets/sla.py), so the queue can say
-// how long is left before the worker flags a ticket.
+// Mirrors the backend's domain rules (domain/tickets/status.py and sla.py) so the UI only
+// offers moves that can succeed. The server still checks every one of them.
+export const nextStatuses: Record<TicketStatus, readonly TicketStatus[]> = {
+  open: ["in_progress", "resolved", "closed"],
+  in_progress: ["open", "waiting_on_customer", "resolved"],
+  waiting_on_customer: ["in_progress", "resolved"],
+  resolved: ["open", "closed"],
+  closed: [],
+};
+
+export function needsAssignee(status: TicketStatus): boolean {
+  return status === "in_progress" || status === "waiting_on_customer";
+}
+
 const HOUR = 60 * 60 * 1000;
 
 export const firstResponseTargetMs: Record<Priority, number> = {

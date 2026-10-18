@@ -3,7 +3,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { unwrap } from "@/api/client";
 import { useApi } from "@/api/context";
 import type { components } from "@/api/schema";
-import type { Priority, TicketSort, TicketStatus, Visibility } from "@/api/types";
+import type { ApiClient } from "@/api/client";
+import type { Priority, Ticket, TicketSort, TicketStatus, Visibility } from "@/api/types";
 
 export type NewTicket = components["schemas"]["OpenTicketRequest"];
 
@@ -22,6 +23,7 @@ export const ticketKeys = {
   list: (filters: TicketFilters) => [...ticketKeys.lists(), filters] as const,
   detail: (ticketId: string) => [...ticketKeys.all, "detail", ticketId] as const,
   comments: (ticketId: string) => [...ticketKeys.detail(ticketId), "comments"] as const,
+  staff: ["users", "staff"] as const,
 };
 
 export function useTicketList(filters: TicketFilters) {
@@ -107,4 +109,63 @@ export function useAddComment(ticketId: string) {
         queryClient.invalidateQueries({ queryKey: ticketKeys.lists() }),
       ]),
   });
+}
+
+export function useStaff() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ticketKeys.staff,
+    queryFn: () => unwrap(api.GET("/users/staff")),
+    // The team changes rarely; one fetch per session is plenty.
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export type TicketChange =
+  | { kind: "status"; status: TicketStatus }
+  | { kind: "priority"; priority: Priority }
+  | { kind: "assignee"; assigneeId: string | null }
+  | { kind: "take" };
+
+export function useChangeTicket(ticketId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (change: TicketChange) => sendChange(api, ticketId, change),
+    onSuccess: (ticket) => {
+      queryClient.setQueryData(ticketKeys.detail(ticketId), ticket);
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.lists() });
+    },
+  });
+}
+
+function sendChange(api: ApiClient, ticketId: string, change: TicketChange): Promise<Ticket> {
+  const path = { ticket_id: ticketId };
+  switch (change.kind) {
+    case "status":
+      return unwrap(
+        api.PUT("/tickets/{ticket_id}/status", {
+          params: { path },
+          body: { status: change.status },
+        }),
+      );
+    case "priority":
+      return unwrap(
+        api.PUT("/tickets/{ticket_id}/priority", {
+          params: { path },
+          body: { priority: change.priority },
+        }),
+      );
+    case "assignee":
+      return change.assigneeId === null
+        ? unwrap(api.DELETE("/tickets/{ticket_id}/assignee", { params: { path } }))
+        : unwrap(
+            api.PUT("/tickets/{ticket_id}/assignee", {
+              params: { path },
+              body: { assignee_id: change.assigneeId },
+            }),
+          );
+    case "take":
+      return unwrap(api.POST("/tickets/{ticket_id}/take", { params: { path } }));
+  }
 }

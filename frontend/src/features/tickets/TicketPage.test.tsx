@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FakeHelpdesk, type SeededTicket } from "@/test/fake-helpdesk";
@@ -90,6 +90,111 @@ describe("a ticket", () => {
     expect(
       within(note.closest("article") ?? document.body).getByText("Internal note"),
     ).toBeVisible();
-    expect(screen.getByText("Waiting on customer")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Status" })).toHaveDisplayValue(
+      "Waiting on customer",
+    );
+  });
+});
+
+describe("a ticket, worked by staff", () => {
+  function unassignedTicket() {
+    const helpdesk = new FakeHelpdesk();
+    const ticket = helpdesk.seedTicket({
+      subject: "CSV export stops at 10,000 rows",
+      requester: nadia,
+      priority: "normal",
+    });
+    return { helpdesk, ticket };
+  }
+
+  function options(name: string): string[] {
+    const select = screen.getByRole("combobox", { name });
+    return within(select)
+      .getAllByRole("option")
+      .filter((option) => option instanceof HTMLOptionElement && !option.disabled)
+      .map((option) => option.textContent);
+  }
+
+  it("lets an agent take a ticket and start work on it", async () => {
+    const { helpdesk, ticket } = unassignedTicket();
+    const { user } = renderApp(`/tickets/${ticket.id}`, { signedInAs: elena, helpdesk });
+    await screen.findByRole("complementary", { name: "Ticket properties" });
+    expect(options("Status")).toEqual(["Open", "Resolved", "Closed"]);
+    expect(screen.getByText("Assign someone to start work on it.")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Take it" }));
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Assignee" })).toHaveDisplayValue(
+        "Elena Dimitrova (you)",
+      );
+    });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Status" }), "In progress");
+
+    await waitFor(() => {
+      expect(helpdesk.tickets[0]?.status).toBe("in_progress");
+    });
+    expect(screen.queryByRole("button", { name: "Take it" })).not.toBeInTheDocument();
+    expect(options("Status")).toEqual(["In progress", "Open", "Waiting on customer", "Resolved"]);
+  });
+
+  it("hands a ticket to a colleague", async () => {
+    const { helpdesk, ticket } = unassignedTicket();
+    const { user } = renderApp(`/tickets/${ticket.id}`, { signedInAs: elena, helpdesk });
+    const assignee = await screen.findByRole("combobox", { name: "Assignee" });
+    await waitFor(() => {
+      expect(options("Assignee")).toEqual(["Unassigned", "Elena Dimitrova (you)", "Maria Ivanova"]);
+    });
+
+    await user.selectOptions(assignee, "Maria Ivanova");
+
+    await waitFor(() => {
+      expect(helpdesk.tickets[0]?.assignee?.display_name).toBe("Maria Ivanova");
+    });
+    expect(assignee).toHaveDisplayValue("Maria Ivanova");
+  });
+
+  it("raises the priority", async () => {
+    const { helpdesk, ticket } = unassignedTicket();
+    const { user } = renderApp(`/tickets/${ticket.id}`, { signedInAs: elena, helpdesk });
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Priority" }), "Urgent");
+
+    await waitFor(() => {
+      expect(helpdesk.tickets[0]?.priority).toBe("urgent");
+    });
+    expect(screen.getByText("Due in 1 hour")).toBeVisible();
+  });
+
+  it("explains and reloads when someone else changed the ticket first", async () => {
+    const { helpdesk, ticket } = unassignedTicket();
+    const { user } = renderApp(`/tickets/${ticket.id}`, { signedInAs: elena, helpdesk });
+    const priority = await screen.findByRole("combobox", { name: "Priority" });
+    helpdesk.conflictOnNextChange();
+    // Meanwhile a colleague bumped it to high.
+    ticket.priority = "high";
+
+    await user.selectOptions(priority, "Urgent");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Someone else changed this ticket at the same moment.",
+    );
+    await waitFor(() => {
+      expect(priority).toHaveDisplayValue("High");
+    });
+  });
+
+  it("keeps a closed ticket's properties read-only", async () => {
+    const helpdesk = new FakeHelpdesk();
+    const ticket = helpdesk.seedTicket({
+      subject: "Duplicate of the CSV export ticket",
+      requester: nadia,
+      status: "closed",
+    });
+    renderApp(`/tickets/${ticket.id}`, { signedInAs: elena, helpdesk });
+
+    expect(await screen.findByRole("combobox", { name: "Status" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Priority" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Assignee" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Take it" })).not.toBeInTheDocument();
   });
 });

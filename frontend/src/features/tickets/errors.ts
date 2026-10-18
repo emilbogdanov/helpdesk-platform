@@ -12,6 +12,14 @@ export function submitErrorMessage(error: Error): string {
         return "This ticket was closed in the meantime, so it can't take more replies.";
       case "ticket_not_found":
         return "This ticket no longer exists or you can't see it any more.";
+      case "concurrent_update":
+        return "Someone else changed this ticket at the same moment. It's been reloaded; check it and try again.";
+      case "assignee_required":
+        return "Assign the ticket to someone before moving it to that status.";
+      case "invalid_status_transition":
+        return "The ticket can't move to that status from where it is now.";
+      case "invalid_assignee":
+        return "That person can't take tickets. Pick an active agent or admin.";
     }
   }
   return UNAVAILABLE;

@@ -1,8 +1,24 @@
 .page {
+  display: grid;
+  grid-template-columns: minmax(0, 760px);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.withPanel {
+  grid-template-columns: minmax(0, 760px) 260px;
+}
+
+.main {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  max-width: 760px;
+}
+
+@media (max-width: 960px) {
+  .withPanel {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .back {

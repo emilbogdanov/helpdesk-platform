@@ -16,6 +16,17 @@ function personFrom(user: User): Person {
   return { id: user.id, display_name: user.display_name, role: user.role };
 }
 
+// The backend's transition table (domain/tickets/status.py), copied rather than imported from
+// the app so a mistake in the app's own copy can't hide here as well.
+const TRANSITIONS: Record<TicketStatus, readonly TicketStatus[]> = {
+  open: ["in_progress", "resolved", "closed"],
+  in_progress: ["open", "waiting_on_customer", "resolved"],
+  waiting_on_customer: ["in_progress", "resolved"],
+  resolved: ["open", "closed"],
+  closed: [],
+};
+const WORKED: readonly TicketStatus[] = ["in_progress", "waiting_on_customer"];
+
 export interface SeededTicket {
   subject: string;
   requester: Account;
@@ -37,6 +48,7 @@ export class FakeHelpdesk {
   readonly #tokens = new Map<string, User>();
   readonly #idempotencyKeys = new Map<string, string>();
   #failProfileRequests = 0;
+  #conflictOnNextChange = false;
 
   constructor(accounts: Account[] = [petar, nadia, elena, maria]) {
     this.accounts = accounts.map((account) => ({ ...account, user: { ...account.user } }));
@@ -54,6 +66,11 @@ export class FakeHelpdesk {
 
   failNextProfileRequests(count: number): void {
     this.#failProfileRequests = count;
+  }
+
+  // As if another agent saved the ticket first: the next change gets a 409.
+  conflictOnNextChange(): void {
+    this.#conflictOnNextChange = true;
   }
 
   seedTicket(seed: SeededTicket): Ticket {
@@ -219,6 +236,72 @@ export class FakeHelpdesk {
         return found instanceof Response ? found : HttpResponse.json(found.ticket);
       }),
 
+      http.put("/api/tickets/:ticketId/status", async ({ request, params }) => {
+        const body = (await request.json()) as Schemas["StatusChangeRequest"];
+        return this.#change(request, params.ticketId, (ticket) => {
+          if (!TRANSITIONS[ticket.status].includes(body.status)) {
+            return refuse(
+              409,
+              "invalid_status_transition",
+              `cannot move a ticket from ${ticket.status} to ${body.status}`,
+            );
+          }
+          if (WORKED.includes(body.status) && ticket.assignee === null) {
+            return refuse(409, "assignee_required", "assign the ticket first");
+          }
+          ticket.status = body.status;
+          return undefined;
+        });
+      }),
+
+      http.put("/api/tickets/:ticketId/priority", async ({ request, params }) => {
+        const body = (await request.json()) as Schemas["PriorityChangeRequest"];
+        return this.#change(request, params.ticketId, (ticket) => {
+          ticket.priority = body.priority;
+          return undefined;
+        });
+      }),
+
+      http.put("/api/tickets/:ticketId/assignee", async ({ request, params }) => {
+        const body = (await request.json()) as Schemas["AssigneeChangeRequest"];
+        return this.#change(request, params.ticketId, (ticket) => {
+          const assignee = this.#staff().find((person) => person.id === body.assignee_id);
+          if (!assignee) {
+            return refuse(422, "invalid_assignee", "only active staff can take tickets");
+          }
+          ticket.assignee = assignee;
+          return undefined;
+        });
+      }),
+
+      http.delete("/api/tickets/:ticketId/assignee", ({ request, params }) =>
+        this.#change(request, params.ticketId, (ticket) => {
+          if (WORKED.includes(ticket.status)) {
+            return refuse(409, "assignee_required", `a ticket ${ticket.status} needs an assignee`);
+          }
+          ticket.assignee = null;
+          return undefined;
+        }),
+      ),
+
+      http.post("/api/tickets/:ticketId/take", ({ request, params }) =>
+        this.#change(request, params.ticketId, (ticket, user) => {
+          ticket.assignee = personFrom(user);
+          return undefined;
+        }),
+      ),
+
+      http.get("/api/users/staff", ({ request }) => {
+        const user = this.#authenticate(request);
+        if (!user) {
+          return refuse(401, "invalid_token", "token is invalid");
+        }
+        if (user.role === "customer") {
+          return refuse(403, "staff_only", "only agents and admins can see who is on the team");
+        }
+        return HttpResponse.json(this.#staff());
+      }),
+
       http.get("/api/tickets/:ticketId/comments", ({ request, params }) => {
         const found = this.#visibleTicket(request, params.ticketId);
         if (found instanceof Response) {
@@ -275,6 +358,42 @@ export class FakeHelpdesk {
       return refuse(404, "ticket_not_found", `ticket ${String(ticketId)} not found`);
     }
     return { ticket, user };
+  }
+
+  #change(
+    request: Request,
+    ticketId: string | readonly string[] | undefined,
+    apply: (ticket: Ticket, user: User) => Response | undefined,
+  ): Response {
+    const found = this.#visibleTicket(request, ticketId);
+    if (found instanceof Response) {
+      return found;
+    }
+    const { ticket, user } = found;
+    if (user.role === "customer") {
+      return refuse(403, "staff_only", "only agents and admins can change tickets");
+    }
+    if (this.#conflictOnNextChange) {
+      this.#conflictOnNextChange = false;
+      return refuse(409, "concurrent_update", "the ticket was changed by someone else");
+    }
+    if (ticket.status === "closed") {
+      return refuse(409, "ticket_closed", `ticket ${ticket.id} is closed`);
+    }
+    const refused = apply(ticket, user);
+    if (refused) {
+      return refused;
+    }
+    ticket.updated_at = new Date().toISOString();
+    return HttpResponse.json(ticket);
+  }
+
+  #staff(): Person[] {
+    return this.accounts
+      .map(({ user }) => user)
+      .filter((user) => user.role !== "customer" && user.is_active)
+      .sort((a, b) => a.display_name.localeCompare(b.display_name))
+      .map(personFrom);
   }
 
   #canSee(user: User, ticket: Ticket): boolean {
