@@ -3,7 +3,9 @@ import { Navigate, type RouteObject } from "react-router";
 import { NotFoundPage } from "@/app/NotFoundPage";
 import { RouteError } from "@/app/RouteError";
 import { AccountPage } from "@/features/account/AccountPage";
+import { PeoplePage } from "@/features/admin/PeoplePage";
 import { AuthLayout } from "@/features/auth/AuthLayout";
+import { RequireAdmin } from "@/features/auth/RequireAdmin";
 import { RequireSession } from "@/features/auth/RequireSession";
 import { SignInPage } from "@/features/auth/SignInPage";
 import { SignUpPage } from "@/features/auth/SignUpPage";
@@ -34,6 +36,11 @@ export const routes: RouteObject[] = [
               { path: "tickets/new", element: <NewTicketPage /> },
               { path: "tickets/:ticketId", element: <TicketPage /> },
               { path: "account", element: <AccountPage /> },
+              {
+                path: "admin",
+                element: <RequireAdmin />,
+                children: [{ path: "people", element: <PeoplePage /> }],
+              },
               { path: "*", element: <NotFoundPage /> },
             ],
           },

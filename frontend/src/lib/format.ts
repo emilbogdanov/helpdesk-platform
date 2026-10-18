@@ -1,4 +1,5 @@
 const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const dateOnly = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 // English like the rest of the interface, so "3 hours ago" never sits in a sentence of another language.
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
@@ -13,6 +14,10 @@ const MINUTES_IN: [Intl.RelativeTimeFormatUnit, number][] = [
 
 export function formatDateTime(iso: string): string {
   return dateTime.format(new Date(iso));
+}
+
+export function formatDate(iso: string): string {
+  return dateOnly.format(new Date(iso));
 }
 
 // "3 hours ago", "in 1 hour", "yesterday"; anything under a minute is "just now". Rounded

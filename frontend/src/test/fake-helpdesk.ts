@@ -45,7 +45,9 @@ export class FakeHelpdesk {
   readonly accounts: Account[];
   readonly tickets: Ticket[] = [];
   readonly comments = new Map<string, Comment[]>();
-  readonly #tokens = new Map<string, User>();
+  // Token -> user id. Like the backend, every request reloads the account, so role changes
+  // and deactivations apply to tokens already handed out.
+  readonly #tokens = new Map<string, string>();
   readonly #idempotencyKeys = new Map<string, string>();
   #failProfileRequests = 0;
   #conflictOnNextChange = false;
@@ -56,7 +58,7 @@ export class FakeHelpdesk {
 
   issueToken(user: User): string {
     const token = `token-${user.id}-${this.#tokens.size + 1}`;
-    this.#tokens.set(token, user);
+    this.#tokens.set(token, user.id);
     return token;
   }
 
@@ -150,6 +152,7 @@ export class FakeHelpdesk {
       }),
 
       ...this.#ticketHandlers(),
+      ...this.#adminHandlers(),
 
       http.get("/api/users/me", ({ request }) => {
         if (this.#failProfileRequests > 0) {
@@ -345,6 +348,101 @@ export class FakeHelpdesk {
     ];
   }
 
+  #adminHandlers(): HttpHandler[] {
+    return [
+      http.get("/api/users", ({ request }) => {
+        const admin = this.#admin(request);
+        if (admin instanceof Response) {
+          return admin;
+        }
+        const query = new URL(request.url).searchParams;
+        const needle = (query.get("q") ?? "").trim().toLowerCase();
+        const role = query.get("role");
+        const status = query.get("status");
+        const limit = Number(query.get("limit") ?? 50);
+        const offset = Number(query.get("cursor") ?? 0);
+        const matching = this.accounts
+          .map(({ user }) => user)
+          .filter((user) => role === null || user.role === role)
+          .filter((user) => status === null || user.is_active === (status === "active"))
+          .filter(
+            (user) =>
+              user.display_name.toLowerCase().includes(needle) || user.email.includes(needle),
+          )
+          .sort((a, b) => a.display_name.localeCompare(b.display_name));
+        const hasMore = offset + limit < matching.length;
+        return HttpResponse.json({
+          items: matching.slice(offset, offset + limit),
+          next_cursor: hasMore ? String(offset + limit) : null,
+        } satisfies Schemas["UserListResponse"]);
+      }),
+
+      http.post("/api/users", async ({ request }) => {
+        const admin = this.#admin(request);
+        if (admin instanceof Response) {
+          return admin;
+        }
+        const body = (await request.json()) as Schemas["CreateUserRequest"];
+        const email = body.email.trim().toLowerCase();
+        if (body.password.length < 10) {
+          return refuse(422, "invalid_value", "password must be 10 to 128 characters");
+        }
+        if (this.accounts.some(({ user }) => user.email === email)) {
+          return refuse(409, "email_taken", `an account already uses ${email}`);
+        }
+        const user: User = {
+          id: crypto.randomUUID(),
+          email,
+          display_name: body.display_name,
+          role: body.role,
+          is_active: true,
+          created_at: new Date().toISOString(),
+        };
+        this.accounts.push({ user, password: body.password });
+        return HttpResponse.json(user, { status: 201 });
+      }),
+
+      http.put("/api/users/:userId/role", async ({ request, params }) => {
+        const body = (await request.json()) as Schemas["RoleChangeRequest"];
+        return this.#manage(request, params.userId, (user) => {
+          user.role = body.role;
+        });
+      }),
+
+      http.post("/api/users/:userId/deactivate", ({ request, params }) =>
+        this.#manage(request, params.userId, (user) => {
+          user.is_active = false;
+        }),
+      ),
+
+      http.post("/api/users/:userId/reactivate", ({ request, params }) =>
+        this.#manage(request, params.userId, (user) => {
+          user.is_active = true;
+        }),
+      ),
+    ];
+  }
+
+  #manage(
+    request: Request,
+    userId: string | readonly string[] | undefined,
+    change: (user: User) => void,
+  ): Response {
+    const admin = this.#admin(request);
+    if (admin instanceof Response) {
+      return admin;
+    }
+    const account = this.#account(userId);
+    if (!account) {
+      return refuse(404, "user_not_found", `user ${String(userId)} not found`);
+    }
+    if (account.user.id === admin.id) {
+      return refuse(403, "own_account", "admins can't change their own account");
+    }
+    change(account.user);
+    return HttpResponse.json(account.user);
+  }
+
   #visibleTicket(
     request: Request,
     ticketId: string | readonly string[] | undefined,
@@ -402,6 +500,23 @@ export class FakeHelpdesk {
 
   #authenticate(request: Request): User | undefined {
     const token = request.headers.get("Authorization")?.replace(/^Bearer /, "");
-    return token ? this.#tokens.get(token) : undefined;
+    const userId = token ? this.#tokens.get(token) : undefined;
+    const user = this.accounts.find((account) => account.user.id === userId)?.user;
+    return user?.is_active ? user : undefined;
+  }
+
+  #admin(request: Request): User | Response {
+    const user = this.#authenticate(request);
+    if (!user) {
+      return refuse(401, "invalid_token", "token is invalid");
+    }
+    if (user.role !== "admin") {
+      return refuse(403, "admin_only", "only admins can manage accounts");
+    }
+    return user;
+  }
+
+  #account(userId: string | readonly string[] | undefined): Account | undefined {
+    return this.accounts.find((account) => account.user.id === userId);
   }
 }

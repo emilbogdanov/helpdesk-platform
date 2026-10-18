@@ -22,6 +22,7 @@
   --color-on-accent: light-dark(#ffffff, #0b1f1b);
 
   --color-danger: light-dark(#b8322a, #ef6b61);
+  --color-on-danger: light-dark(#ffffff, #1f0b09);
   --color-danger-subtle: light-dark(#fbecea, #361815);
   --color-warning: light-dark(#975700, #dca23f);
   --color-warning-subtle: light-dark(#fcf2e1, #2f2410);

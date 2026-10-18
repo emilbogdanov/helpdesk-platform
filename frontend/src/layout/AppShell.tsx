@@ -48,6 +48,11 @@ export function AppShell() {
               <NavLink to="/tickets" className={styles.navLink}>
                 {user.role === "customer" ? "Tickets" : "Queue"}
               </NavLink>
+              {user.role === "admin" && (
+                <NavLink to="/admin/people" className={styles.navLink}>
+                  People
+                </NavLink>
+              )}
             </nav>
           </div>
           <div className={styles.actions}>

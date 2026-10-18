@@ -63,3 +63,13 @@
   background: var(--color-hover);
   color: var(--color-text);
 }
+
+/* Only for the confirming click of something hard to undo. */
+.danger {
+  background: var(--color-danger);
+  color: var(--color-on-danger);
+}
+
+.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 88%, black);
+}

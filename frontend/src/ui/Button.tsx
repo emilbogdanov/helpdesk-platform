@@ -5,7 +5,7 @@ import styles from "@/ui/Button.module.css";
 import { classNames } from "@/ui/class-names";
 
 interface Appearance {
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "danger";
   size?: "md" | "sm";
 }
 
