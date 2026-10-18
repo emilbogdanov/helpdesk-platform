@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 from typing import Any
 
 from fastapi import FastAPI
@@ -28,7 +29,7 @@ def openapi_schema() -> dict[str, Any]:
 
 
 def _routed_app(lifespan: Lifespan[FastAPI] | None = None) -> FastAPI:
-    app = FastAPI(title="Helpdesk", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Helpdesk", version=version("helpdesk"), lifespan=lifespan)
     register_error_handlers(app)
     for router in (auth.router, tickets.router, users.router, stats.router):
         app.include_router(router)

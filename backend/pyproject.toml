@@ -1,6 +1,6 @@
 [project]
 name = "helpdesk"
-version = "0.1.0"
+version = "1.0.0"
 description = "Ticketing backend: customers open tickets, agents work a shared queue, admins manage users."
 requires-python = ">=3.13"
 license = "MIT"
