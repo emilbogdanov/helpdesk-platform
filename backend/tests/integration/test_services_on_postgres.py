@@ -2,19 +2,25 @@ import asyncio
 from datetime import timedelta
 
 import pytest
+from argon2 import PasswordHasher as Argon2
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from helpdesk.application.actor import Actor
+from helpdesk.application.errors import InvalidCredentialsError
 from helpdesk.application.tickets.comment_service import CommentService
 from helpdesk.application.tickets.ticket_service import TicketService
+from helpdesk.application.users.auth_service import AuthService
 from helpdesk.domain.ids import TicketId
 from helpdesk.domain.roles import Role
 from helpdesk.domain.tickets.comment import CommentBody, Visibility
 from helpdesk.domain.tickets.status import TicketStatus
 from helpdesk.domain.tickets.values import Description, Priority, Subject
+from helpdesk.domain.users.values import DisplayName, EmailAddress, Password
 from helpdesk.infrastructure.db.tables import AuditEntryRow, Base, TicketRow
 from helpdesk.infrastructure.db.unit_of_work import SqlUnitOfWork
+from helpdesk.infrastructure.security.passwords import Argon2PasswordHasher
+from helpdesk.infrastructure.security.tokens import JwtTokenCodec
 from tests.unit.application.fakes import FixedClock
 from tests.unit.domain.tickets.builders import MILA, OPENED_AT, REQUESTER
 
@@ -98,3 +104,26 @@ async def test_concurrent_creates_with_one_key_make_one_ticket(
     assert len(set(ids)) == 1
     assert await count(engine, TicketRow) == 1
     assert await count(engine, AuditEntryRow) == 1
+
+
+async def test_sign_up_log_in_and_authenticate_with_real_adapters(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    auth = AuthService(
+        SqlUnitOfWork(session_factory),
+        Argon2PasswordHasher(Argon2(time_cost=1, memory_cost=8, parallelism=1)),
+        JwtTokenCodec("integration-test-signing-secret-000000"),
+        FixedClock(OPENED_AT),
+        token_ttl=timedelta(minutes=15),
+    )
+
+    created = await auth.sign_up(
+        email=EmailAddress("Ana.Stoyanova@brightloop.io"),
+        display_name=DisplayName("Ana Stoyanova"),
+        password=Password("quiet-harbour-19"),
+    )
+    access = await auth.log_in(EmailAddress("ana.stoyanova@brightloop.io"), "quiet-harbour-19")
+
+    assert await auth.authenticate(access.token) == Actor(created.id, Role.CUSTOMER)
+    with pytest.raises(InvalidCredentialsError):
+        await auth.log_in(EmailAddress("ana.stoyanova@brightloop.io"), "quiet-harbour-20")
