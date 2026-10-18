@@ -1,0 +1,107 @@
+from datetime import datetime
+from enum import StrEnum
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Identity,
+    Index,
+    MetaData,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from helpdesk.domain.tickets.comment import Visibility
+from helpdesk.domain.tickets.status import TicketStatus
+from helpdesk.domain.tickets.values import SUBJECT_MAX_LENGTH, Priority
+
+# Deterministic constraint names, so migrations can refer to them and
+# autogenerate never sees a renamed constraint as a new one.
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_N_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+
+class Base(DeclarativeBase):
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+    type_annotation_map = {datetime: DateTime(timezone=True)}  # noqa: RUF012
+
+
+def _enum_column(enum: type[StrEnum], name: str) -> Enum:
+    # VARCHAR plus a CHECK constraint instead of a native Postgres enum: adding a status
+    # later is a one-line migration rather than an ALTER TYPE dance.
+    return Enum(
+        enum,
+        name=name,
+        native_enum=False,
+        create_constraint=True,
+        length=32,
+        values_callable=lambda members: [member.value for member in members],
+    )
+
+
+class TicketRow(Base):
+    __tablename__ = "tickets"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    requester_id: Mapped[UUID]
+    subject: Mapped[str] = mapped_column(String(SUBJECT_MAX_LENGTH))
+    description: Mapped[str] = mapped_column(Text)
+    priority: Mapped[Priority] = mapped_column(_enum_column(Priority, "priority"))
+    status: Mapped[TicketStatus] = mapped_column(_enum_column(TicketStatus, "status"))
+    assignee_id: Mapped[UUID | None]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+    resolved_at: Mapped[datetime | None]
+    closed_at: Mapped[datetime | None]
+    idempotency_key: Mapped[str | None] = mapped_column(String(255))
+    # Optimistic locking: an UPDATE only matches the version that was read, so two agents
+    # editing the same ticket can't silently overwrite each other.
+    version: Mapped[int] = mapped_column()
+
+    __mapper_args__ = {"version_id_col": version}  # noqa: RUF012
+    __table_args__ = (
+        UniqueConstraint("requester_id", "idempotency_key"),
+        CheckConstraint(
+            "status NOT IN ('in_progress', 'waiting_on_customer') OR assignee_id IS NOT NULL",
+            name="worked_ticket_has_assignee",
+        ),
+    )
+
+
+class CommentRow(Base):
+    __tablename__ = "comments"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    ticket_id: Mapped[UUID] = mapped_column(ForeignKey("tickets.id"))
+    author_id: Mapped[UUID]
+    body: Mapped[str] = mapped_column(Text)
+    visibility: Mapped[Visibility] = mapped_column(_enum_column(Visibility, "visibility"))
+    created_at: Mapped[datetime]
+
+    __table_args__ = (Index("ix_comments_ticket_id_created_at", "ticket_id", "created_at"),)
+
+
+class AuditEntryRow(Base):
+    __tablename__ = "audit_entries"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    ticket_id: Mapped[UUID] = mapped_column(ForeignKey("tickets.id"))
+    actor_id: Mapped[UUID]
+    event_type: Mapped[str] = mapped_column(String(64))
+    occurred_at: Mapped[datetime]
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+    __table_args__ = (Index("ix_audit_entries_ticket_id_occurred_at", "ticket_id", "occurred_at"),)
