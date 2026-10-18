@@ -1,43 +1,57 @@
 # helpdesk-platform
 
-A ticketing backend for a small support team. Customers open tickets and reply on them, agents
-work a shared queue, and admins manage accounts. A background worker flags tickets that missed
-their first-response target and closes resolved tickets once the customer has gone quiet.
+A ticketing tool for a small support team. Customers open tickets and follow the conversation,
+agents work a shared queue with first-reply deadlines, and admins manage people and watch the
+numbers. A FastAPI backend with a background worker, and a React frontend.
 
 [![backend](https://github.com/emilbogdanov/helpdesk-platform/actions/workflows/backend.yml/badge.svg)](https://github.com/emilbogdanov/helpdesk-platform/actions/workflows/backend.yml)
+[![frontend](https://github.com/emilbogdanov/helpdesk-platform/actions/workflows/frontend.yml/badge.svg)](https://github.com/emilbogdanov/helpdesk-platform/actions/workflows/frontend.yml)
+[![stack](https://github.com/emilbogdanov/helpdesk-platform/actions/workflows/stack.yml/badge.svg)](https://github.com/emilbogdanov/helpdesk-platform/actions/workflows/stack.yml)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
+![TypeScript 5.9](https://img.shields.io/badge/typescript-5.9-blue)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-The React frontend is in progress; this release is the API, the worker and the admin CLI.
+![The agent queue: an urgent ticket and several others past their first-reply target](docs/screenshots/queue.png)
 
 ## Features
 
-- Three roles: **customer** (sees only their own tickets), **agent** (works the queue) and
-  **admin** (agent rights plus user management).
-- Ticket lifecycle `open → in_progress → waiting_on_customer → resolved → closed`, enforced
-  by the ticket itself. Agents can close spam straight from `open`; a customer's reply moves
-  a ticket that was waiting on them back to `in_progress`, and reopens a resolved one.
-- Public replies and internal notes on the same thread. Customers never see internal notes.
-- First-response tracking: the first public reply from staff is timestamped, and the worker
-  flags a ticket once it misses its target (urgent 1 h, high 4 h, normal 1 day, low 3 days).
-- Auto-close of tickets that have stayed resolved for `HELPDESK_AUTO_CLOSE_AFTER_DAYS`.
-- An audit entry for every change, with the actor (or the worker) and the before/after values.
-- Queue filters by status, priority, assignee (`me`, `unassigned` or a user id) and requester,
-  sorted by newest, oldest or recently updated, with cursor pagination.
-- `Idempotency-Key` on ticket creation, so a client can retry a timed-out request without
-  creating a duplicate.
-- Optimistic locking: two agents editing the same ticket get a `409 concurrent_update` instead
-  of one silently overwriting the other.
-- Tickets and comments name the people on them (`{id, display_name, role}`), so a customer can
-  see who replied without being able to look up accounts.
-- Every error has the same shape, `{"detail", "code"}`, with a stable `code` to branch on.
-- `helpdesk` CLI to bootstrap the first admin, reset a lost password and run the worker.
+**Customers** sign up, open tickets with a priority, and follow each one as a conversation.
+The page tells them when support is waiting on them; replying moves the ticket back into
+the queue, and reopens it if it had been resolved.
+
+**Agents** work a queue they can filter by assignee and priority, oldest first, with each
+ticket's first-reply deadline (urgent 1 h, high 4 h, normal 1 day, low 3 days) and `j`/`k` to
+move through it. On a ticket they take it or hand it to a colleague, move it through
+`open → in progress → waiting on customer → resolved → closed`, and write either a public reply
+or an internal note the customer never sees.
+
+**Admins** add people, change roles and deactivate accounts (which signs them out at once), and
+have a dashboard with the queue's state, the median first-reply time and a per-day chart of
+opened and resolved tickets.
+
+Underneath:
+
+- The ticket enforces its own lifecycle; the UI only offers the moves the server accepts.
+- A worker flags tickets that missed their first-reply target and closes tickets that have
+  stayed resolved for a week. Several replicas can run; a Redis lease gives each pass to one.
+- An audit entry for every change, with who made it (or the worker) and the before and after.
+- `Idempotency-Key` on ticket creation: a customer who presses Submit again after a dropped
+  connection gets the same ticket, not a second one.
+- Optimistic locking: two agents changing the same ticket at once get a clear conflict, not a
+  silent overwrite.
+- Cursor pagination for tickets and accounts, backed by matching indexes.
+- One error shape, `{"detail", "code"}`, with a stable `code` the frontend branches on.
+- Light and dark themes from one set of design tokens; keyboard and screen reader friendly.
 
 ## Tech stack
 
-Python 3.13, FastAPI, SQLAlchemy 2 (async) on asyncpg, PostgreSQL 17, Alembic, Redis 7,
-PyJWT, argon2-cffi, pydantic-settings. Tooling: uv, ruff, mypy (strict), pytest with
-testcontainers, pre-commit, GitHub Actions, Docker Compose.
+**Backend:** Python 3.13, FastAPI, SQLAlchemy 2 (async) on asyncpg, PostgreSQL 17, Alembic,
+Redis 7, PyJWT, argon2-cffi, pydantic-settings.
+**Frontend:** React 19, TypeScript (strict), Vite, TanStack Query, React Router, openapi-fetch
+with types generated from the API's OpenAPI schema, CSS modules.
+**Tooling:** uv, ruff, mypy (strict), pytest with testcontainers, ESLint (type-checked),
+Prettier, Vitest with Testing Library and MSW, Playwright, pre-commit, GitHub Actions, Docker
+Compose, nginx.
 
 ## Quickstart
 
@@ -50,11 +64,12 @@ python -c "import secrets; print('HELPDESK_JWT_SECRET=' + secrets.token_urlsafe(
 docker compose up --build
 ```
 
-Compose starts Postgres and Redis, runs the migrations once, then starts the API on
-<http://localhost:8000> and the worker. Interactive API docs are at
-<http://localhost:8000/docs>.
+Compose starts Postgres and Redis, runs the migrations once, then starts the API, the worker
+and the web front. Open <http://localhost:8080>. The API is also published on its own at
+<http://localhost:8000>, with interactive docs at <http://localhost:8000/docs>.
 
-Create the first admin (it prompts for the password):
+Anyone can sign up as a customer. Staff accounts are made by an admin, and the first admin
+comes from the CLI (it prompts for the password):
 
 ```console
 $ docker compose exec api helpdesk create-admin --email maria.ivanova@northwind.test --name "Maria Ivanova"
@@ -63,9 +78,32 @@ Repeat it:
 created admin maria.ivanova@northwind.test (46b7e92c-7b05-45cb-b220-4db231fb8324)
 ```
 
+Then sign in at <http://localhost:8080> and add your agents under People.
+
 ## Usage
 
-The examples use curl and jq, and a small helper that logs in and prints the access token:
+### In the browser
+
+An agent working the urgent ticket from the queue above: taken, moved to In progress, an
+internal note for the team and a reply to the customer, after which the first-reply deadline
+shows as met.
+
+![An agent's view of a ticket, with the properties panel, an internal note and a reply](docs/screenshots/ticket-agent.png)
+
+The customer's side of another ticket, in the dark theme. Internal notes never reach this
+page, and the prompt above the reply box changes with the ticket's state.
+
+![A customer's view of a ticket that is waiting on their reply](docs/screenshots/ticket-customer-dark.png)
+
+The admin dashboard, hovering one day of the chart. The same numbers are in a table under
+"Show the numbers" for screen readers and anyone who would rather read figures.
+
+![The admin dashboard with six figures and a chart of tickets opened and resolved per day](docs/screenshots/dashboard.png)
+
+### Over the API
+
+Everything the frontend does goes through the same API. The examples use curl and jq, and a
+small helper that logs in and prints the access token:
 
 ```sh
 token() {
@@ -75,7 +113,7 @@ token() {
 ADMIN=$(token maria.ivanova@northwind.test 'correct-horse-battery')
 ```
 
-### Accounts
+#### Accounts
 
 Anyone can sign up, and always gets the customer role:
 
@@ -109,7 +147,7 @@ $ CUSTOMER=$(token petar.georgiev@acme.test winter-orchard-42)
 $ AGENT=$(token elena.dimitrova@northwind.test quiet-harbour-17)
 ```
 
-### Opening a ticket
+#### Opening a ticket
 
 ```console
 $ curl -s localhost:8000/tickets -H 'Content-Type: application/json' -H "Authorization: Bearer $CUSTOMER" \
@@ -143,7 +181,7 @@ Sending the same request again with the same key returns the ticket from the fir
 {"detail": "idempotency key '3b0f6c1e-0d6a-4a52-9f0e-checkout' was already used for a different ticket", "code": "idempotency_key_reused"}
 ```
 
-### Working it
+#### Working it
 
 ```console
 $ TICKET=5013d606-fa10-4d29-9850-c388206e56b8
@@ -178,7 +216,7 @@ Rules are enforced on the server, and each refusal has its own code:
 A customer asking for someone else's ticket gets `404 ticket_not_found`, the same as for a
 ticket that doesn't exist.
 
-### The queue
+#### The queue
 
 Unassigned open tickets, oldest first, two per page:
 
@@ -203,7 +241,7 @@ $ curl -s "localhost:8000/tickets?status=open&assignee=unassigned&sort=oldest&li
 Pass `next_cursor` back as `cursor` with the same filters to get the next page; it is `null`
 on the last one. `status` and `priority` can be repeated (`?status=open&status=in_progress`).
 
-### The worker
+#### The worker
 
 Every `HELPDESK_WORKER_INTERVAL_SECONDS` the worker runs two passes. Here an urgent ticket had
 gone two hours without a reply, and the ticket above had been resolved for eight days:
@@ -216,7 +254,7 @@ gone two hours without a reply, and the ticket above had been resolved for eight
 
 Several worker replicas can run at once; a Redis lease lets only one of them run each pass.
 
-### Audit trail
+#### Audit trail
 
 ```console
 $ docker compose exec db psql -U helpdesk -c "
@@ -236,43 +274,58 @@ $ docker compose exec db psql -U helpdesk -c "
 (7 rows)
 ```
 
-### CLI
+#### CLI
 
 ```console
 $ docker compose exec api helpdesk --help
-usage: helpdesk [-h] {create-admin,reset-password,worker} ...
+usage: helpdesk [-h] {create-admin,reset-password,worker,openapi} ...
 ```
 
 `create-admin` and `reset-password` prompt for the password twice, or read it from
-`HELPDESK_PASSWORD` when it is set (for scripts and CI).
+`HELPDESK_PASSWORD` when it is set (for scripts and CI). `openapi` prints the API schema the
+frontend's types are generated from.
 
 ## Project structure
 
 ```text
 .
-├── docker-compose.yml          db, redis, a one-shot migrate step, api, worker
+├── docker-compose.yml          db, redis, a one-shot migrate step, api, worker, web
 ├── .env.example                the one setting compose needs
-└── backend/
-    ├── Dockerfile              multi-stage, runs as a non-root user
-    ├── pyproject.toml          dependencies and ruff, mypy, pytest config
-    ├── migrations/             Alembic revisions
-    ├── src/helpdesk/
-    │   ├── domain/             Ticket, Comment and User with their rules; no I/O
-    │   ├── application/        use cases, and the ports they need (repositories, unit of work,
-    │   │                       hasher, token codec, audit log)
-    │   ├── infrastructure/     SQLAlchemy tables and repositories, argon2, JWT, Redis lease
-    │   ├── api/                FastAPI routes, request/response models, error mapping
-    │   ├── worker.py           the polling loop and its lease
-    │   ├── cli.py              the helpdesk command
-    │   └── main.py             composition root: builds the API and the worker from settings
-    └── tests/
-        ├── unit/               domain and services against in-memory fakes
-        ├── api/                HTTP behaviour, auth and permissions
-        └── integration/        real Postgres and Redis via testcontainers
+├── docs/screenshots/           the images in this README
+├── backend/
+│   ├── Dockerfile              multi-stage, runs as a non-root user
+│   ├── pyproject.toml          dependencies and ruff, mypy, pytest config
+│   ├── migrations/             Alembic revisions
+│   ├── src/helpdesk/
+│   │   ├── domain/             Ticket, Comment and User with their rules; no I/O
+│   │   ├── application/        use cases, and the ports they need (repositories, unit of
+│   │   │                       work, hasher, token codec, audit log)
+│   │   ├── infrastructure/     SQLAlchemy tables and repositories, argon2, JWT, Redis lease
+│   │   ├── api/                FastAPI routes, request/response models, error mapping
+│   │   ├── worker.py           the polling loop and its lease
+│   │   ├── cli.py              the helpdesk command
+│   │   └── main.py             composition root: builds the API and the worker from settings
+│   └── tests/
+│       ├── unit/               domain and services against in-memory fakes
+│       ├── api/                HTTP behaviour, auth and permissions
+│       └── integration/        real Postgres and Redis via testcontainers
+└── frontend/
+    ├── Dockerfile, nginx.conf  static build served by unprivileged nginx, /api proxied
+    ├── openapi.json            the API schema, regenerated with `npm run api:generate`
+    ├── e2e/                    the Playwright test that runs against the whole stack
+    └── src/
+        ├── api/                typed client generated from the schema, error type
+        ├── app/                routes, providers, query client
+        ├── features/           auth, tickets, admin, account, theme: pages, hooks, logic
+        ├── layout/             the signed-in shell
+        ├── ui/                 buttons, fields, notices, page states
+        ├── styles/             design tokens and base styles
+        └── test/               the fake backend the component tests run against
 ```
 
-Dependencies point inward: `domain` imports nothing from the other layers, and `application`
-knows only the ports it defines.
+Dependencies point inward on the backend: `domain` imports nothing from the other layers, and
+`application` knows only the ports it defines. On the frontend, components render and hooks
+hold the logic; nothing outside `api/` knows about HTTP.
 
 ## Configuration
 
@@ -290,12 +343,24 @@ also read from `backend/.env` (see `backend/.env.example`).
 | `HELPDESK_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`. |
 | `HELPDESK_PASSWORD` | unset | Read by `create-admin` and `reset-password` instead of prompting. |
 
+The frontend has no runtime settings: it always calls `/api` on its own origin, which nginx
+(in Docker) or Vite (in development) forwards to the API. Two variables matter for
+development and testing:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `HELPDESK_API_URL` | `http://localhost:8000` | Where `npm run dev` forwards `/api`. |
+| `E2E_BASE_URL` | `http://localhost:8080` | The running stack the Playwright test drives. |
+| `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD` | unset | An admin the test uses to create its agent. |
+
 ## Running tests
 
+Backend, from `backend/`:
+
 ```sh
-cd backend
 uv sync
 uv run pytest
+uv run ruff check && uv run ruff format --check && uv run mypy
 ```
 
 The integration tests start throwaway Postgres and Redis containers, so Docker must be
@@ -303,16 +368,33 @@ running. To skip them, run `uv run pytest -m "not integration"`. To reuse server
 have, set `HELPDESK_TEST_DATABASE_URL` and `HELPDESK_TEST_REDIS_URL`; the tests drop the
 schema and flush Redis, so never point them at data you want to keep.
 
-Linting and type checks, the same as CI and the pre-commit hook:
+Frontend, from `frontend/`:
 
 ```sh
-uv run ruff check && uv run ruff format --check && uv run mypy
+npm ci
+npm test
+npm run lint && npm run format:check && npm run typecheck
 ```
 
-To run the API on the host while developing, start only the backing services with
-`docker compose up -d db redis`, copy `backend/.env.example` to `backend/.env`, then from
-`backend/` run `uv run alembic upgrade head` and
-`uv run uvicorn --factory helpdesk.main:app --reload`.
+The component tests render the whole app, routes included, against a fake backend built on
+MSW that answers with the real status and error codes. They need no server.
+
+End to end, with the stack from the quickstart running and an admin created:
+
+```sh
+cd frontend
+npx playwright install chromium
+E2E_ADMIN_EMAIL=maria.ivanova@northwind.test E2E_ADMIN_PASSWORD=... npm run test:e2e
+```
+
+The test signs up a customer, opens a ticket, has a fresh agent take it, write a note and
+reply, and checks the customer sees the reply but not the note. CI runs it on every push
+against the stack built from that commit.
+
+To work on the code with live reload: `docker compose up -d db redis`, copy
+`backend/.env.example` to `backend/.env`, then in `backend/` run `uv run alembic upgrade head`
+and `uv run uvicorn --factory helpdesk.main:app --reload`, and in `frontend/` run
+`npm run dev` and open <http://localhost:5173>.
 
 ## Design notes
 
@@ -321,30 +403,35 @@ To run the API on the host while developing, start only the backing services wit
   events. Services load, call one method and commit; the events become audit entries in the
   same transaction, so the trail can't drift from the data.
 - **Concurrent writes fail loudly.** Tickets carry a version column, and a stale update is
-  turned into `409 concurrent_update` rather than last-write-wins. Idempotent creates rely on a
-  unique `(requester_id, idempotency_key)` constraint with `ON CONFLICT DO NOTHING` and a
-  re-read, so two retries racing each other still produce one ticket.
-- **Keyset pagination, backed by indexes.** The cursor encodes the sort column and id, and the
-  query compares `(sort_column, id)` as a row value, so pages stay fast and stable while new
-  tickets arrive. Every list view has a matching composite index, and the worker's lookups use
-  partial indexes; integration tests run `EXPLAIN` to check the indexes are actually used.
-- **One error table.** Domain and application errors map to an HTTP status and a code in
-  `api/errors.py`. Anything not in it becomes a plain 500 with the traceback logged, instead of
-  leaking details or being silently swallowed.
-- **The worker is safe to scale and to interrupt.** A Redis lock with a TTL picks one runner
-  per pass, each ticket is changed in its own transaction so one conflict doesn't undo the rest,
-  and SIGTERM lets the current pass finish before the process exits.
+  turned into `409 concurrent_update`, which the UI explains before reloading the ticket.
+  Idempotent creates rely on a unique `(requester_id, idempotency_key)` constraint with
+  `ON CONFLICT DO NOTHING` and a re-read, so two retries racing each other still make one
+  ticket; the new-ticket form keeps one key for its whole life for exactly that case.
+- **Keyset pagination, backed by indexes.** Cursors encode the sort value and id, and queries
+  compare them as a row value, so pages stay fast and stable while rows arrive. Each ticket list
+  view has a matching index, and integration tests run `EXPLAIN` to check they are used.
+- **One contract, checked in CI.** The frontend's types are generated from the backend's
+  OpenAPI schema and committed; CI regenerates them and fails if they differ, so an API change
+  can't silently break the UI. Errors carry a stable `code` from one table in `api/errors.py`,
+  and the frontend's wording is keyed on those codes, never on messages.
+- **Each layer tested where it is cheapest to be sure.** Domain and service tests run against
+  in-memory fakes, and the same scenarios run again on Postgres so the SQL and the fakes can't
+  disagree. Frontend tests drive the full app against a fake backend. One Playwright test
+  covers the path through every layer, in the built images.
 
 ## Limitations and roadmap
 
-- No frontend yet. Next: a React + TypeScript app with a customer portal, the agent queue and
-  admin screens, plus a stats endpoint for the admin dashboard.
 - First-response targets count wall-clock time; there are no business hours or holidays.
-- No refresh tokens, and access tokens are not revoked when a password is reset; they expire
-  after `HELPDESK_ACCESS_TOKEN_TTL_MINUTES`. A deactivated account is locked out immediately.
-- Password reset is admin-only through the CLI; there is no email flow.
-- No notifications, attachments or full-text search. The audit log is written but not yet
-  exposed through the API.
+- No refresh tokens: the session lasts as long as the access token (15 minutes by default),
+  then the app asks you to sign in again. Tokens aren't revoked on a password reset, though a
+  deactivated account is locked out immediately.
+- Password reset is admin-only through the CLI; there is no email flow, and no notifications
+  of any kind yet.
+- No live updates: lists refresh when you come back to the tab or act, not when a colleague
+  does. Server-sent events would be the next step.
+- No attachments or full-text search, and account search is a substring match without an
+  index. The audit log is written but not yet shown in the UI.
+- The interface is English only.
 
 ## License
 
