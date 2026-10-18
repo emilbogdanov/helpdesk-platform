@@ -1,8 +1,8 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { unwrap } from "@/api/client";
 import { useApi } from "@/api/context";
-import type { TicketSort, TicketStatus } from "@/api/types";
+import type { TicketSort, TicketStatus, Visibility } from "@/api/types";
 
 export interface TicketFilters {
   statuses: readonly TicketStatus[];
@@ -15,6 +15,8 @@ export const ticketKeys = {
   all: ["tickets"] as const,
   lists: () => [...ticketKeys.all, "list"] as const,
   list: (filters: TicketFilters) => [...ticketKeys.lists(), filters] as const,
+  detail: (ticketId: string) => [...ticketKeys.all, "detail", ticketId] as const,
+  comments: (ticketId: string) => [...ticketKeys.detail(ticketId), "comments"] as const,
 };
 
 export function useTicketList(filters: TicketFilters) {
@@ -36,5 +38,46 @@ export function useTicketList(filters: TicketFilters) {
       ),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
+  });
+}
+
+export function useTicket(ticketId: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ticketKeys.detail(ticketId),
+    queryFn: () =>
+      unwrap(api.GET("/tickets/{ticket_id}", { params: { path: { ticket_id: ticketId } } })),
+  });
+}
+
+export function useComments(ticketId: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ticketKeys.comments(ticketId),
+    queryFn: () =>
+      unwrap(
+        api.GET("/tickets/{ticket_id}/comments", { params: { path: { ticket_id: ticketId } } }),
+      ),
+  });
+}
+
+export function useAddComment(ticketId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (comment: { body: string; visibility?: Visibility }) =>
+      unwrap(
+        api.POST("/tickets/{ticket_id}/comments", {
+          params: { path: { ticket_id: ticketId } },
+          body: comment,
+        }),
+      ),
+    // A reply moves the ticket too: its updated time, and its status when the requester
+    // answers (waiting -> in progress, resolved -> open).
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ticketKeys.detail(ticketId) }),
+        queryClient.invalidateQueries({ queryKey: ticketKeys.lists() }),
+      ]),
   });
 }

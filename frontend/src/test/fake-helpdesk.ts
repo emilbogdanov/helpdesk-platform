@@ -1,7 +1,7 @@
 import { http, HttpResponse, type HttpHandler } from "msw";
 
 import type { components } from "@/api/schema";
-import type { Person, Ticket, TicketStatus, User } from "@/api/types";
+import type { Comment, Person, Ticket, TicketStatus, User } from "@/api/types";
 import { elena, maria, nadia, petar, type Account } from "@/test/fixtures";
 
 type Schemas = components["schemas"];
@@ -33,6 +33,7 @@ export interface SeededTicket {
 export class FakeHelpdesk {
   readonly accounts: Account[];
   readonly tickets: Ticket[] = [];
+  readonly comments = new Map<string, Comment[]>();
   readonly #tokens = new Map<string, User>();
   #failProfileRequests = 0;
 
@@ -72,7 +73,21 @@ export class FakeHelpdesk {
       sla_breached_at: null,
     };
     this.tickets.push(ticket);
+    this.comments.set(ticket.id, []);
     return ticket;
+  }
+
+  seedComment(ticket: Ticket, author: Account, body: string, internal = false): Comment {
+    const comment: Comment = {
+      id: crypto.randomUUID(),
+      ticket_id: ticket.id,
+      author: personFrom(author.user),
+      body,
+      visibility: internal ? "internal" : "public",
+      created_at: new Date().toISOString(),
+    };
+    this.comments.get(ticket.id)?.push(comment);
+    return comment;
   }
 
   handlers(): HttpHandler[] {
@@ -156,7 +171,68 @@ export class FakeHelpdesk {
           next_cursor: hasMore ? String(offset + limit) : null,
         } satisfies Schemas["TicketListResponse"]);
       }),
+
+      http.get("/api/tickets/:ticketId", ({ request, params }) => {
+        const found = this.#visibleTicket(request, params.ticketId);
+        return found instanceof Response ? found : HttpResponse.json(found.ticket);
+      }),
+
+      http.get("/api/tickets/:ticketId/comments", ({ request, params }) => {
+        const found = this.#visibleTicket(request, params.ticketId);
+        if (found instanceof Response) {
+          return found;
+        }
+        const thread = this.comments.get(found.ticket.id) ?? [];
+        const staff = found.user.role !== "customer";
+        return HttpResponse.json(
+          thread.filter((comment) => staff || comment.visibility === "public"),
+        );
+      }),
+
+      http.post("/api/tickets/:ticketId/comments", async ({ request, params }) => {
+        const found = this.#visibleTicket(request, params.ticketId);
+        if (found instanceof Response) {
+          return found;
+        }
+        const { ticket, user } = found;
+        const body = (await request.json()) as Schemas["AddCommentRequest"];
+        if (ticket.status === "closed") {
+          return refuse(409, "ticket_closed", `ticket ${ticket.id} is closed`);
+        }
+        const internal = body.visibility === "internal";
+        if (internal && user.role === "customer") {
+          return refuse(403, "internal_note_not_allowed", "only staff can write internal notes");
+        }
+        const author = this.accounts.find((account) => account.user.id === user.id);
+        if (!author) {
+          return refuse(401, "invalid_token", "token is invalid");
+        }
+        const comment = this.seedComment(ticket, author, body.body, internal);
+        ticket.updated_at = comment.created_at;
+        if (user.id === ticket.requester.id) {
+          if (ticket.status === "waiting_on_customer") ticket.status = "in_progress";
+          if (ticket.status === "resolved") ticket.status = "open";
+        } else if (!internal && ticket.first_responded_at === null) {
+          ticket.first_responded_at = comment.created_at;
+        }
+        return HttpResponse.json(comment, { status: 201 });
+      }),
     ];
+  }
+
+  #visibleTicket(
+    request: Request,
+    ticketId: string | readonly string[] | undefined,
+  ): { ticket: Ticket; user: User } | Response {
+    const user = this.#authenticate(request);
+    if (!user) {
+      return refuse(401, "invalid_token", "token is invalid");
+    }
+    const ticket = this.tickets.find((candidate) => candidate.id === ticketId);
+    if (!ticket || !this.#canSee(user, ticket)) {
+      return refuse(404, "ticket_not_found", `ticket ${String(ticketId)} not found`);
+    }
+    return { ticket, user };
   }
 
   #canSee(user: User, ticket: Ticket): boolean {
